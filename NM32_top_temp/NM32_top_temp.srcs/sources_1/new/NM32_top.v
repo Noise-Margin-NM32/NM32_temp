@@ -25,9 +25,18 @@ module nm32_top(
     input rst
 );
 
+
+//AHB bus wires
+wire [31:0] haddr;
+wire [2:0]  hsize;
+wire        hwrite;
+wire [31:0] hwdata;
+wire        hready;
+wire [31:0] hrdata;
+
 // Pico signals
 wire        mem_valid;
-wire        mem_ready;
+wire        mem_ready;ok 
 wire [31:0] mem_addr;
 wire [31:0] mem_wdata;
 wire [3:0]  mem_wstrb;
@@ -45,6 +54,11 @@ picorv32 cpu (
     .mem_wstrb(mem_wstrb),
     .mem_rdata(mem_rdata)
 );
+
+picorv32_ahb wrapper( .clk(clk), .rst(rst), 
+    .mem_valid(mem_valid), .mem_ready(mem_ready), .mem_addr(mem_addr), 
+    .mem_wdata(mem_wdata), .mem_wstrb(mem_wstrb), .mem_rdata(mem_rdata),
+     );
 
 // SIMPLE MEMORY (TEMP)
 reg [31:0] memory [0:1023];

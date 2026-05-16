@@ -1,0 +1,15 @@
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved.
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2022.2 (lin64) Build 3671981 Fri Oct 14 04:59:54 MDT 2022
+| Date         : Sun May 17 01:24:26 2026
+| Host         : omkar-Victus-by-HP-Gaming-Laptop-15-fa0xxx running 64-bit Ubuntu 22.04.5 LTS
+| Command      : report_bus_skew -warn_on_violation -file ef_util_clkmux_4x1_bus_skew_routed.rpt -pb ef_util_clkmux_4x1_bus_skew_routed.pb -rpx ef_util_clkmux_4x1_bus_skew_routed.rpx
+| Design       : ef_util_clkmux_4x1
+| Device       : 7z010i-clg225
+| Speed File   : -1L  PRODUCTION 1.12 2019-11-22
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+Bus Skew Report
+
+No bus skew constraints
+

@@ -323,7 +323,8 @@ module ahb_arbiter #(
     reg  [NUM_SLVS-1:0] hsel_comb;
     reg                  def_slave_hsel_comb;
     reg                  hmastlock_comb;
-
+    reg [31:0] addr_low_tmp;
+    reg [31:0] addr_high_tmp;
     function [31:0] get_addr_low;
         input [3:0] idx;
         get_addr_low = ADDR_LOW_FLAT[32*idx+:32];
@@ -342,12 +343,17 @@ module ahb_arbiter #(
         end
 
         def_slave_hsel_comb = 1'b1;
+
+
+
         for (i = 0; i < NUM_SLVS; i = i + 1) begin
-            if (sel_haddr[31:10] >= get_addr_low(i[3:0])[31:10] &&
-                sel_haddr[31:10] <= get_addr_high(i[3:0])[31:10]) begin
+            addr_low_tmp  = get_addr_low(i);
+            addr_high_tmp = get_addr_high(i);
+            if (sel_haddr[31:10] >= addr_low_tmp[31:10] && sel_haddr[31:10] <= addr_high_tmp[31:10]) begin
                 hsel_comb[i]        = 1'b1;
                 def_slave_hsel_comb = 1'b0;
-            end else begin
+            end
+            else begin
                 hsel_comb[i] = 1'b0;
             end
         end

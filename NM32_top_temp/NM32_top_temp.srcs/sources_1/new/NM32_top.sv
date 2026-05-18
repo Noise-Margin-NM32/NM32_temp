@@ -22,10 +22,13 @@
 
 
 module nm32_top(
-    input clk,
-    input rst
+    input wire clk,
+    input wire rst
 );
 
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////           Wires and Parameters           ////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 localparam NUM_SLVS = 1;
 
@@ -44,7 +47,7 @@ wire [1:0]  cpu_hresp;
 wire cpu_hgrant;
 wire cpu_hbusreq;
 wire cpu_hlock;
-wire cpu_hburst;
+wire [2:0] cpu_hburst;
 wire [3:0] cpu_hprot;
 
 assign cpu_hbusreq = 1; // CPU always requests the bus?
@@ -64,7 +67,6 @@ wire [31:0] cpu_mem_rdata;
 
 
 // Arbiter wires
-wire        remap;
 
 wire [14:0] mst_hbusreq;   // [i] = master i hbusreq
 wire [14:0] mst_hlock;
@@ -102,21 +104,50 @@ wire [31:0]         slv_hrdata_v  [0:14];
 wire [15:0]         slv_hsplit_v  [0:14];
 
 
+//AHB to APB bridge wires
+wire                       bridge_H_CLK        ;
+wire                       bridge_H_RESET_n    ;
+wire                       bridge_H_WRITE      ;
+wire                       bridge_H_SEL_APB    ; 
+wire                       bridge_H_READY_IN   ;
+wire [TRAN_WIDTH - 1 : 0]  bridge_H_TRANS      ;
+wire [DATA_WIDTH - 1 : 0]  bridge_H_WDATA      ;
+wire [DATA_WIDTH - 1 : 0]  bridge_H_ADDR       ;
+wire [DATA_WIDTH - 1 : 0]  bridge_P_RDATA      ;
+
+wire                       bridge_H_RESP       ;
+wire                       bridge_H_READY_OUT  ;
+wire                       bridge_P_ENABLE     ;
+wire                       bridge_P_WRITE      ;
+wire                       bridge_P_SELx       ;
+wire [DATA_WIDTH - 1 : 0]  bridge_P_WDATA      ;
+wire [DATA_WIDTH - 1 : 0]  bridge_P_ADDR       ;
+wire [DATA_WIDTH - 1 : 0]  bridge_H_RDATA      ;
+
+
+
+///////////////////////////////////////////////////////////////////////////TIE OFFS////////////////////////////////////////////////////////////////////////
+
+
+
 // CPU is master 0 on the AHB bus
-assign mst_hbusreq[0] = cpu_hbusreq;        //CPU sending to the arbiter
-assign mst_hlock[0] = cpu_hlock;
-assign mst_htrans[1:0] = cpu_htrans;
-assign mst_haddr[0] = cpu_haddr;
-assign mst_hwrite[0] = cpu_hwrite;
-assign mst_hsize[0] = cpu_hsize;
-assign mst_hburst[0] = cpu_hburst;
-assign mst_hprot[0] = cpu_hprot;
-assign mst_hwdata[0] = cpu_hwdata;
+assign mst_hbusreq = {14'b0, cpu_hbusreq};        //CPU sending to the arbiter
+assign mst_hlock = {14'b0, cpu_hlock};
+assign mst_htrans = {28'b0, cpu_htrans};
+assign mst_haddr = {14'b0, cpu_haddr};
+assign mst_hwrite = {14'b0, cpu_hwrite};
+assign mst_hsize = {14'b0, cpu_hsize};
+assign mst_hburst = {14'b0, cpu_hburst};
+assign mst_hprot = {14'b0, cpu_hprot};
+assign mst_hwdata = {14'b0, cpu_hwdata};
 
 assign cpu_hgrant = mst_hgrant[0];  // CPU gets from arbiter
 assign cpu_hready = mst_hready_out;
 assign cpu_hrdata = mst_hrdata_out;
 assign cpu_hresp = mst_hresp_out;
+
+
+//////////////////////////////////////////////////////////////////////////////// INSTANTIATIONS ////////////////////////////////////////////////////////////////////////
 
 // Instantiate Pico
 picorv32 cpu (
@@ -170,15 +201,15 @@ arbiter
 
     // Slave interface
     .slv_hsel(slv_hsel),
-    .slv_haddr(slv_haddr_out),
-    .slv_hwrite(slv_hwrite_out),
-    .slv_htrans(slv_htrans_out),
-    .slv_hsize(slv_hsize_out),
-    .slv_hburst(slv_hburst_out),
-    .slv_hprot(slv_hprot_out),
-    .slv_hwdata(slv_hwdata_out),
-    .slv_hmaster(slv_hmaster_out),
-    .slv_hmastlock(slv_hmastlock_out),
+    .slv_haddr_out(slv_haddr_out),
+    .slv_hwrite_out(slv_hwrite_out),
+    .slv_htrans_out(slv_htrans_out),
+    .slv_hsize_out(slv_hsize_out),
+    .slv_hburst_out(slv_hburst_out),
+    .slv_hprot_out(slv_hprot_out),
+    .slv_hwdata_out(slv_hwdata_out),
+    .slv_hmaster_out(slv_hmaster_out),
+    .slv_hmastlock_out(slv_hmastlock_out),
     .slv_hready_in(slv_hready_in),
 
 // Feedback from slaves to arbiter
@@ -192,7 +223,24 @@ arbiter
     .mst_hready_out(mst_hready_out),
     .mst_hresp_out(mst_hresp_out),
     .mst_hrdata_out(mst_hrdata_out)
+);
 
+AHB_to_APB_Bridge #(
+              DATA_WIDTH = 32,
+              ADDR_WIDTH = 32,
+              TRAN_WIDTH = 2
+
+)
+bridge (
+    .H_CLK(clk),
+    .H_RESET_n(~rst),
+    .H_WRITE(slv_hwrite_out), // From arbiter to bridge
+    .H_SEL_APB(slv_hsel[0]), // Assuming slave 0 is the APB bridge
+    .H_READY_IN(slv_hready_in_v), // Ready from slave 0
+    .H_TRANS(slv_htrans_out), // From arbiter to bridge
+    .H_WDATA(slv_hwdata_out), // From arbiter to bridge
+    .H_ADDR(slv_haddr_out),   // From arbiter to bridge
+    .P_RDATA(cpu_mem_rdata), // From APB slave (memory)
 
 );
 

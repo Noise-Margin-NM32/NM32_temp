@@ -1,14 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <GenRun Id="synth_1" LaunchPart="xc7z010iclg225-1L" LaunchTime="1778961121" LaunchIncrCheckpoint="$PSRCDIR/utils_1/imports/synth_1/ef_util_clkmux_4x1.dcp">
-  <File Type="VDS-TIMINGSUMMARY" Name="ef_util_clkmux_4x1_timing_summary_synth.rpt"/>
   <File Type="RDS-DCP" Name="ef_util_clkmux_4x1.dcp"/>
   <File Type="RDS-UTIL-PB" Name="ef_util_clkmux_4x1_utilization_synth.pb"/>
-  <File Type="RDS-UTIL" Name="ef_util_clkmux_4x1_utilization_synth.rpt"/>
-  <File Type="RDS-PROPCONSTRS" Name="ef_util_clkmux_4x1_drc_synth.rpt"/>
-  <File Type="RDS-RDS" Name="ef_util_clkmux_4x1.vds"/>
-  <File Type="REPORTS-TCL" Name="ef_util_clkmux_4x1_reports.tcl"/>
-  <File Type="VDS-TIMING-PB" Name="ef_util_clkmux_4x1_timing_summary_synth.pb"/>
   <File Type="PA-TCL" Name="ef_util_clkmux_4x1.tcl"/>
+  <File Type="RDS-UTIL" Name="ef_util_clkmux_4x1_utilization_synth.rpt"/>
+  <File Type="REPORTS-TCL" Name="ef_util_clkmux_4x1_reports.tcl"/>
+  <File Type="RDS-RDS" Name="ef_util_clkmux_4x1.vds"/>
   <FileSet Name="sources" Type="DesignSrcs" RelSrcDir="$PSRCDIR/sources_1" RelGenDir="$PGENDIR/sources_1">
     <Filter Type="Srcs"/>
     <File Path="$PPRDIR/../I2S/EF_IP_UTIL/hdl/ef_util_lib.v">

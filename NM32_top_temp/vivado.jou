@@ -2,8 +2,8 @@
 # Vivado v2022.2 (64-bit)
 # SW Build 3671981 on Fri Oct 14 04:59:54 MDT 2022
 # IP Build 3669848 on Fri Oct 14 08:30:02 MDT 2022
-# Start of session at: Sun May 17 01:13:34 2026
-# Process ID: 14979
+# Start of session at: Mon May 18 20:55:17 2026
+# Process ID: 9557
 # Current directory: /home/omkar/SoC_0.1/NM32_top_temp
 # Command line: vivado NM32_top_temp.xpr
 # Log file: /home/omkar/SoC_0.1/NM32_top_temp/vivado.log
@@ -13,18 +13,15 @@
 start_gui
 open_project NM32_top_temp.xpr
 update_compile_order -fileset sources_1
-add_files -norecurse {/home/omkar/SoC_0.1/AHB/ahb_arbiter.sv /home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.srcs/sources_1/new/NM32_top.sv}
+create_bd_design "temp_top"
 update_compile_order -fileset sources_1
-reset_run synth_1
-launch_runs synth_1 -jobs 8
-wait_on_run synth_1
-launch_runs impl_1 -jobs 8
-wait_on_run impl_1
-open_run impl_1
-export_ip_user_files -of_objects  [get_files /home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.srcs/sources_1/new/NM32_top.v] -no_script -reset -force -quiet
-remove_files  /home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.srcs/sources_1/new/NM32_top.v
-remove_files  /home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.srcs/sources_1/new/NM32_top.v
-export_ip_user_files -of_objects  [get_files /home/omkar/SoC_0.1/AHB/ahb_arbiter.v] -no_script -reset -force -quiet
-remove_files  /home/omkar/SoC_0.1/AHB/ahb_arbiter.v
-close_design
-open_run synth_1 -name synth_1
+generate_target all [get_files  /home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.srcs/sources_1/bd/temp_top/temp_top.bd]
+export_ip_user_files -of_objects [get_files /home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.srcs/sources_1/bd/temp_top/temp_top.bd] -no_script -sync -force -quiet
+create_ip_run [get_files -of_objects [get_fileset sources_1] /home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.srcs/sources_1/bd/temp_top/temp_top.bd]
+export_simulation -of_objects [get_files /home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.srcs/sources_1/bd/temp_top/temp_top.bd] -directory /home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.ip_user_files/sim_scripts -ip_user_files_dir /home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.ip_user_files -ipstatic_source_dir /home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.ip_user_files/ipstatic -lib_map_path [list {modelsim=/home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.cache/compile_simlib/modelsim} {questa=/home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.cache/compile_simlib/questa} {xcelium=/home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.cache/compile_simlib/xcelium} {vcs=/home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.cache/compile_simlib/vcs} {riviera=/home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.cache/compile_simlib/riviera}] -use_ip_compiled_libs -force -quiet
+open_bd_design {/home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.srcs/sources_1/bd/temp_top/temp_top.bd}
+export_ip_user_files -of_objects  [get_files /home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.srcs/sources_1/bd/temp_top/temp_top.bd] -no_script -reset -force -quiet
+remove_files  /home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.srcs/sources_1/bd/temp_top/temp_top.bd
+file delete -force /home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.srcs/sources_1/bd/temp_top
+file delete -force /home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.gen/sources_1/bd/temp_top
+synth_design -rtl -rtl_skip_mlo -name rtl_1

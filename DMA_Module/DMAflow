@@ -1,0 +1,99 @@
+DMA floww 
+
+
+First ApB buse configuration 
+
+preset  hreset => 1 to 0 to 1
+srcaddr =0 dstaddr =0l, srcptr = 0, dstptr = 0, lencnt = 0, irq = 0
+
+
+
+5 clocks - pSEL =1
+6th clock -pENABle  =1; and pWrite =1;
+
+Next 4 cycles ( actually 8 cycles )
+7th - srcaddr is written 
+8th - dstaddr is written
+9th - len
+10th -ctrl is written  nextstate = BUSREQ , current-state = IDLE
+
+
+( all this time H bus[Hreset =0] ) :
+=> current_state = IDLE, irq=0 HTRANS, HADDR HWRITE HWDATA=0
+Condition=) nextstate = BUS REQ when ctrl = 1( 10th cycle
+
+
+11th cycle 
+-currentstate = IDLE-- srcptr=  srcaddr, dstptr = dstaddr ..(ctrl=1
+- current state  <= nextstate;
+
+** Combinational logic: HBUSREQ = 1 ( current != IDLE),, HTRANS = 00
+
+
+12th ccyle
+- currentstate = BUS REQ 
+- only wait till HGRANT  = 1 
+ how mnay ever cycles:: say waited 2 cycles 
+ 
+ 
+ Before 14th cycle HGRANT = 1 ( Combinational logic):: nextstate =  ADDR_pHASE
+ 
+ at 14th cycle : currentstate = BUS REQ next state = ADDR_PHASE
+ - curentstate = nextstate==> current state = ADDR_PHASE
+
+end of 14th cycle
+COmbinational logic: currentstate = ADDR_PHASE and HGRANT =1
+ 	- HADDR  = srcptr, HWRITE = 0 HTRANS  = 2
+ 	- nextstate  = READ_DATA
+ 	
+ 	( meaing HADDR is exported to the BUS at this point) - 1 clock cycle
+ 	( now waiting for the bus to send response for HREADY and return HRDATA)
+ 
+ 15th cycle 
+ - currentstate = nextstatee ==: currentstate = READ_DATA 	
+ 
+ end of 15th cycle :
+ 	currentstate = READ_DATA
+ 	  - HADDR = dstptr, HWRITE = 1;
+ 	  
+16th cycle 
+- currentstatee = READ_Data
+	- waiting for HREADY( when the reading task by the bus is done ) how many ever cycles 
+	- say after 2 cycles 
+	
+17th 
+
+18th cycles HREADY = 1 ( **this should happen at a cycle edge** )
+- combinatioal logic : nextstate  = WRITE_DATA
+
+clk-currentstate(still) = READ_DATA
+	  - HREADY=1 so data_buf = HRDATA and scr_ptr = scr_ptr+jump
+currentstate =nextstate; currentstate - WRITE_DATA;
+
+ending of 18th cycle---- make HREADY =0;
+combinational logic: HWDATA = data_buf; as HWDATA got populated- should be given to the bus to write it doenw 
+- once done ( how many ever cycles) HREADY =1
+
+19th state: current state = WRITE_DATA
+- checking HREADY ??
+say HREDAY =1 after 2 cycle
+
+20th
+
+21th HREADY = 1;
+combinational =-- nextstate = either  ADD_phase or WRTE_DATA
+say lencnt ==0; and nextstate = DONW
+ 
+ currentstate= nextstte ==-; currentstte = DOWN
+ combinational logic: HBUSREQ = 0;
+ - 
+ 
+ 
+ 22th cycles
+ - irq = 1;
+ 
+ 
+ 
+ 
+ 
+ 

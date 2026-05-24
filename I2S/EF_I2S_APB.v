@@ -24,7 +24,7 @@
 
 module EF_I2S_APB #(
     parameter DW = 32,
-    AW = 4
+    parameter AW = 4
 ) (
 
     input  wire         PCLK,

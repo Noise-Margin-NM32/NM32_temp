@@ -24,14 +24,18 @@
 module nm32_top(
     input wire clk,
     input wire pclk, // For APB peripherals
-    input wire rstn
+    input wire rstn,
+    input wire [1-1:0] ws,
+    input wire [1-1:0] sck,
+    input wire [1-1:0] sdi,
+    output wire [1-1:0] sdo
 );
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////           Wires and Parameters           ////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-localparam NUM_SLVS = 2;
+localparam NUM_SLVS = 3;
 localparam TRAN_WIDTH = 3;
 localparam DATA_WIDTH = 32;
 
@@ -141,7 +145,15 @@ wire [DATA_WIDTH - 1 : 0]  bridge_h_rdata      ;
  wire             sram_HREADYOUT;
  wire [31:0]      sram_HRDATA;
 
-
+//BOOT ROM wires
+wire        boot_rom_HSEL;
+wire [31:0] boot_rom_HADDR;
+wire [1:0]  boot_rom_HTRANS;
+wire        boot_rom_HWRITE;
+wire        boot_rom_HREADY;
+wire        boot_rom_HREADYOUT;
+wire [31:0] boot_rom_HRDATA;
+wire [1:0]  boot_rom_HRESP;
 
 
  //I2S
@@ -153,9 +165,20 @@ wire [DATA_WIDTH - 1 : 0]  bridge_h_rdata      ;
  wire         i2s_PREADY;
  wire [ 31:0] i2s_PRDATA;
  wire         i2s_IRQ;
- wire [1-1:0] ws;
- wire [1-1:0] sck;
- wire [1-1:0] sdi;
+//  wire [1-1:0] ws;
+//  wire [1-1:0] sck;
+//  wire [1-1:0] sdi;
+
+ wire         i2s_tx_PWRITE;
+ wire [ 31:0] i2s_tx_PWDATA;
+ wire [ 31:0] i2s_tx_PADDR;
+ wire         i2s_tx_PENABLE;
+ wire         i2s_tx_PSEL;
+ wire         i2s_tx_PREADY;
+ wire [ 31:0] i2s_tx_PRDATA;
+ wire         i2s_tx_IRQ;
+
+//  wire [1-1:0] sdo;
 
 
 
@@ -222,15 +245,36 @@ assign sram_HREADY = slv_hready_in; // Assuming shared hready for all
 assign sram_HWDATA = slv_hwdata_out;
 assign sram_HSIZE = slv_hsize_out;
 
+assign boot_rom_HSEL = slv_hsel[2]; // Assuming slave 2 is boot ROM
+assign boot_rom_HADDR = slv_haddr_out;
+assign boot_rom_HTRANS = slv_htrans_out;
+assign boot_rom_HWRITE = slv_hwrite_out;
+assign boot_rom_HREADY = slv_hready_in; // Assuming shared hready for all
+
+
 assign i2s_PWRITE = bridge_p_write; // From bridge to APB slave
 assign i2s_PWDATA = bridge_p_wdata; // From bridge to APB slave
 assign i2s_PADDR = bridge_p_addr[3:0];   // From bridge to APB slave
 assign i2s_PENABLE = bridge_p_enable; // From bridge to APB slave
-assign i2s_PSEL = bridge_p_selx;     // From bridge to APB slave
+
+assign i2s_tx_PWRITE = bridge_p_write; // From bridge to APB slave
+assign i2s_tx_PWDATA = bridge_p_wdata; // From bridge to APB slave
+assign i2s_tx_PADDR = bridge_p_addr[3:0];   // From bridge to APB slave
+assign i2s_tx_PENABLE = bridge_p_enable; // From bridge to APB slave
 
 
+//APB DECODER LOGIC:
+//for psel
+assign i2s_PSEL = (bridge_p_addr[31:16] == 16'h2000) ? bridge_p_selx : 1'b0;    // From bridge to APB slave
+assign i2s_tx_PSEL = (bridge_p_addr[31:16] == 16'h2001) ? bridge_p_selx : 1'b0;    // From bridge to APB slave
+//for prdtata:
+assign bridge_p_rdata = (i2s_PSEL) ? i2s_PRDATA: 32'b0; // From APB slave to bridge
+assign bridge_p_rdata = (i2s_tx_PSEL) ? i2s_tx_PRDATA: 32'b0; // From APB slave to bridge
 
-assign bridge_p_rdata = i2s_PRDATA; // From APB slave to bridge
+//Temporary tie off to make i2s always ready, it must be changed after we  make a better bridge.
+//nvm we just left it alone,
+//also pls look into how to connect irq for i2s and stuff @meera
+
 
 
 // assign slv_hrdata_v = {(NUM_SLVS-2){32'b0}, sram_HRDATA, bridge_h_rdata}; // To arbiter (only from slave 0)
@@ -249,9 +293,14 @@ assign slv_hresp_v[1] = 2'b00; // OKAY response
 assign slv_hready_in_v[1] = sram_HREADYOUT; // Ready from SRAM
 assign slv_hsplit_v[1] = 0; // No splits for now
 
+assign slv_hrdata_v[2] = boot_rom_HRDATA; // To arbiter (only from slave 2)
+assign slv_hresp_v[2] = boot_rom_HRESP; // From boot ROM
+assign slv_hready_in_v[2] = boot_rom_HREADYOUT; // From boot ROM
+assign slv_hsplit_v[2] = 0; // No splits for
+
 generate
     genvar i;
-    for(i = 2; i<15; i = i+1) begin
+    for(i = 3; i<15; i = i+1) begin
         assign slv_hrdata_v[i] = 0;
         assign slv_hresp_v[i] = 0;
         assign slv_hready_in_v[i] = 0;
@@ -293,8 +342,8 @@ ahb_arbiter #(
     .DEF_ARB_MST(0),
     .NUM_SLVS(NUM_SLVS),
     .ALG_NUMBER(1),            //Round Robin
-    .ADDR_LOW_FLAT({448'b0, 32'h3000_0000, 32'h2000_0000}), // Base address of slave 0
-    .ADDR_HIGH_FLAT({448'b0, 32'h3000_FFFF, 32'h2000_FFFF})
+    .ADDR_LOW_FLAT({416'b0, 32'h00000000, 32'h3000_0000, 32'h2000_0000}), // Base address of slave 1, 0
+    .ADDR_HIGH_FLAT({416'b0, 32'h0000FFFF,32'h3000_FFFF, 32'h200F_FFFF})
 ) 
 arbiter  
 (
@@ -392,10 +441,40 @@ EF_I2S_APB #(.AW(i2s_AW), .DW(i2s_DW)) i2s_apb (
     .PSEL(i2s_PSEL),
     .PREADY(i2s_PREADY),
     .PRDATA(i2s_PRDATA),
-    .IRQ(i2s_IRQ)
+    .IRQ(i2s_IRQ),
+    .ws(ws),
+    .sck(sck),
+    .sdi(sdi)
 );
 
+EF_I2S_TX_APB #(.AW(i2s_AW), .DW(i2s_DW)) i2s_tx_apb (
+    .PCLK(pclk),
+    .PRESETn(rstn),
+    .PWRITE(i2s_tx_PWRITE),
+    .PWDATA(i2s_tx_PWDATA),
+    .PADDR(i2s_tx_PADDR),
+    .PENABLE(i2s_tx_PENABLE),
+    .PSEL(i2s_tx_PSEL),
+    .PREADY(i2s_tx_PREADY),
+    .PRDATA(i2s_tx_PRDATA),
+    .IRQ(i2s_tx_IRQ),
+    .sdo(sdo),
+    .ws(ws),
+    .sck(sck)
+);
 
+boot_rom_ahb boot_rom (
+    .HCLK(clk),
+    .HRESETn(rstn),
+    .HSEL(boot_rom_HSEL),
+    .HADDR(boot_rom_HADDR),
+    .HTRANS(boot_rom_HTRANS),
+    .HWRITE(boot_rom_HWRITE),
+    .HREADY(boot_rom_HREADY),
+    .HREADYOUT(boot_rom_HREADYOUT),
+    .HRDATA(boot_rom_HRDATA),
+    .HRESP(boot_rom_HRESP)
+);
 
 
 

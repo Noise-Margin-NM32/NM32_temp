@@ -1,32 +1,4 @@
-// SPDX-FileCopyrightText: 2024 Efabless Corporation and its Licensors, All Rights Reserved
-// ========================================================================================
-//
-//  This software is protected by copyright and other intellectual property
-//  rights. Therefore, reproduction, modification, translation, compilation, or
-//  representation of this software in any manner other than expressly permitted
-//  is strictly prohibited.
-//
-//  You may access and use this software, solely as provided, solely for the purpose of
-//  integrating into semiconductor chip designs that you create as a part of the
-//  of Efabless shuttles or Efabless managed production programs (and solely for use and
-//  fabrication as a part of Efabless production purposes and for no other purpose.  You
-//  may not modify or convey the software for any other purpose.
-//
-//  Disclaimer: EFABLESS AND ITS LICENSORS MAKE NO WARRANTY OF ANY KIND,
-//  EXPRESS OR IMPLIED, WITH REGARD TO THIS MATERIAL, AND EXPRESSLY DISCLAIM
-//  ANY AND ALL WARRANTIES OF ANY KIND INCLUDING, BUT NOT LIMITED TO, THE
-//  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
-//  PURPOSE. Efabless reserves the right to make changes without further
-//  notice to the materials described herein. Neither Efabless nor any of its licensors
-//  assume any liability arising out of the application or use of any product or
-//  circuit described herein. Efabless's products described herein are
-//  not authorized for use as components in life-support devices.
-//
-//  If you have a separate agreement with Efabless pertaining to the use of this software
-//  then that agreement shall control.
-
 `timescale 1 ns / 1 ps
-
 
 `ifdef USE_POWER_PINS
     `define USE_PG_PIN
@@ -48,44 +20,43 @@ vpwrpc
     parameter NW = 1024;  // Number of WORDS
     parameter SEED = 0 ;    // User can define SEED at memory instantiation by .SEED(<Some_Seed_value>)
 
-    output [(NB - 1) : 0] DO;
-    output ScanOutCC;
+    output reg [(NB - 1) : 0] DO;
+    output wire ScanOutCC;
 
-    input [(NB - 1) : 0] DI;
-    input [(NB - 1) : 0] BEN;
-    input [(NA - 1) : 0] AD;
-    input EN;
-    input R_WB;
-    input CLKin;
-    input WLBI;
-    input WLOFF;
-    input TM;
-    input SM;
-    input ScanInCC;
-    input ScanInDL;
-    input ScanInDR;
-    input vpwrac;
-    input vpwrpc;
+    input wire [(NB - 1) : 0] DI;
+    input wire [(NB - 1) : 0] BEN;
+    input wire [(NA - 1) : 0] AD;
+    input wire EN;
+    input wire R_WB;
+    input wire CLKin;
+    input wire WLBI;
+    input wire WLOFF;
+    input wire TM;
+    input wire SM;
+    input wire ScanInCC;
+    input wire ScanInDL;
+    input wire ScanInDR;
+    input wire vpwrac;
+    input wire vpwrpc;
 
 `ifdef USE_PG_PIN
-    input vgnd;
-    input vpwrm;
+    input wire vgnd;
+    input wire vpwrm;
 
 `ifdef EF_SRAM_PA_SIM
-  inout vpwra;
+  inout wire vpwra;
 `else
-  input vpwra;
+  input wire vpwra;
 `endif
-
 
 `ifdef EF_SRAM_PA_SIM
-  inout vpwrp;
+  inout wire vpwrp;
 `else
-  input vpwrp;
+  input wire vpwrp;
 `endif
 
-    input vnb;
-    input vpb;
+    input wire vnb;
+    input wire vpb;
 `else
     supply0 vgnd;
     supply0 vnb;
@@ -95,35 +66,35 @@ vpwrpc
     supply1 vpb;
 `endif
 
+    // 1024 x 32-bit Native Memory Array
+    reg [31:0] mem [0:1023];
+    
+    integer i;
+    initial begin
+        for(i=0; i<1024; i=i+1) begin
+            mem[i] = 32'h0000_0000;
+        end
+    end
 
-EF_SRAM_1024x32_macro EF_SRAM_1024x32_inst
-(
-    .DO(DO),
-    .ScanOutCC(ScanOutCC),
-    .AD(AD),
-    .BEN(BEN),
-    .CLKin(CLKin),
-    .DI(DI),
-    .EN(EN),
-    .R_WB(R_WB),
-    .ScanInCC(ScanInCC),
-    .ScanInDL(ScanInDL),
-    .ScanInDR(ScanInDR),
-    .SM(SM),
-    .TM(TM),
-    .WLBI(WLBI),
-    .WLOFF(WLOFF),
-    `ifdef USE_PG_PIN
-    .vgnd(vgnd),
-    .vnb(vnb),
-    .vpb(vpb),
-    .vpwra(vpwra),
-    `endif
-    .vpwrac(vpwrac),
-    `ifdef USE_PG_PIN
-    .vpwrm(vpwrm),
-    .vpwrp(vpwrp),
-    `endif
-    .vpwrpc(vpwrpc)
-);
+    // Tie off the unused ASIC scan chain output
+    assign ScanOutCC = 1'b0;
+
+    // Standard FPGA BRAM Inference Logic
+    always @(posedge CLKin) begin
+        if (EN) begin
+            // R_WB == 0 means WRITE operation
+            if (~R_WB) begin 
+                // BEN is a 32-bit mask driven by the AHB controller. 
+                // We check the lowest bit of each byte lane to write cleanly.
+                if (BEN[0])  mem[AD][7:0]   <= DI[7:0];
+                if (BEN[8])  mem[AD][15:8]  <= DI[15:8];
+                if (BEN[16]) mem[AD][23:16] <= DI[23:16];
+                if (BEN[24]) mem[AD][31:24] <= DI[31:24];
+            end
+            
+            // Synchronous Read output
+            DO <= mem[AD];
+        end
+    end
+
 endmodule

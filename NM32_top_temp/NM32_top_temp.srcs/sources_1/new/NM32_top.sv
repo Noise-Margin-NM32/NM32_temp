@@ -25,8 +25,10 @@ module nm32_top(
     input wire clk,
     input wire pclk, // For APB peripherals
     input wire rstn,
-    input wire [1-1:0] ws,
-    input wire [1-1:0] sck,
+    output wire [1-1:0] rx_ws,
+    output wire [1-1:0] rx_sck,
+    output wire [1-1:0] tx_ws,
+    output wire [1-1:0] tx_sck,
     input wire [1-1:0] sdi,
     output wire [1-1:0] sdo
 );
@@ -36,7 +38,7 @@ module nm32_top(
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 localparam NUM_SLVS = 3;
-localparam TRAN_WIDTH = 3;
+localparam TRAN_WIDTH = 2;
 localparam DATA_WIDTH = 32;
 
 localparam i2s_AW = 4;
@@ -60,11 +62,11 @@ wire cpu_hlock;
 wire [2:0] cpu_hburst;
 wire [3:0] cpu_hprot;
 
-assign cpu_hbusreq = 1; // CPU always requests the bus?
-assign cpu_hlock = 0;   // No locked transfers for now
-assign remap = 0;  // No remapping for now
-assign cpu_hburst = 3'b000; // No bursts for now
-assign cpu_hprot = 4'b0011; // Default protection
+// assign cpu_hbusreq; // CPU always requests the bus?
+// assign cpu_hlock;   // No locked transfers for now
+// assign remap = 1'b0;  // No remapping for now
+// assign cpu_hburst; // No bursts for now
+// assign cpu_hprot; // Default protection
 
 
 // Pico native signals
@@ -210,15 +212,15 @@ assign mst_hwdata[0] = cpu_hwdata;
 generate
     genvar i;
     for(i = 1; i<15; i = i+1) begin
-        assign mst_hbusreq[i] = 0;
-        assign mst_hlock[i] = 0;
-        assign mst_htrans[2*i+1:2*i] = 0;
-        assign mst_haddr[i] = 0;
-        assign mst_hwrite[i] = 0;
-        assign mst_hsize[i] = 0;
-        assign mst_hburst[i] = 0;
-        assign mst_hprot[i] = 0;
-        assign mst_hwdata[i] = 0;
+        assign mst_hbusreq[i] = 1'b0;
+        assign mst_hlock[i] = 1'b0;
+        assign mst_htrans[2*i +: 2] = 2'b00;
+        assign mst_haddr[i] = 1'b0;
+        assign mst_hwrite[i] = 1'b0;
+        assign mst_hsize[i] = 1'b0;
+        assign mst_hburst[i] = 1'b0;
+        assign mst_hprot[i] = 1'b0;
+        assign mst_hwdata[i] = 1'b0;
     end
 endgenerate
 
@@ -254,12 +256,12 @@ assign boot_rom_HREADY = slv_hready_in; // Assuming shared hready for all
 
 assign i2s_PWRITE = bridge_p_write; // From bridge to APB slave
 assign i2s_PWDATA = bridge_p_wdata; // From bridge to APB slave
-assign i2s_PADDR = bridge_p_addr[3:0];   // From bridge to APB slave
+assign i2s_PADDR = bridge_p_addr;   // From bridge to APB slave
 assign i2s_PENABLE = bridge_p_enable; // From bridge to APB slave
 
 assign i2s_tx_PWRITE = bridge_p_write; // From bridge to APB slave
 assign i2s_tx_PWDATA = bridge_p_wdata; // From bridge to APB slave
-assign i2s_tx_PADDR = bridge_p_addr[3:0];   // From bridge to APB slave
+assign i2s_tx_PADDR = bridge_p_addr;   // From bridge to APB slave
 assign i2s_tx_PENABLE = bridge_p_enable; // From bridge to APB slave
 
 
@@ -268,8 +270,9 @@ assign i2s_tx_PENABLE = bridge_p_enable; // From bridge to APB slave
 assign i2s_PSEL = (bridge_p_addr[31:16] == 16'h2000) ? bridge_p_selx : 1'b0;    // From bridge to APB slave
 assign i2s_tx_PSEL = (bridge_p_addr[31:16] == 16'h2001) ? bridge_p_selx : 1'b0;    // From bridge to APB slave
 //for prdtata:
-assign bridge_p_rdata = (i2s_PSEL) ? i2s_PRDATA: 32'b0; // From APB slave to bridge
-assign bridge_p_rdata = (i2s_tx_PSEL) ? i2s_tx_PRDATA: 32'b0; // From APB slave to bridge
+assign bridge_p_rdata =     (i2s_PSEL) ? i2s_PRDATA: // From APB slave to bridge
+                            (i2s_tx_PSEL) ? i2s_tx_PRDATA:  // From APB slave to bridge
+                            32'b0; // Default to 0 if no slave selected
 
 //Temporary tie off to make i2s always ready, it must be changed after we  make a better bridge.
 //nvm we just left it alone,
@@ -299,12 +302,12 @@ assign slv_hready_in_v[2] = boot_rom_HREADYOUT; // From boot ROM
 assign slv_hsplit_v[2] = 0; // No splits for
 
 generate
-    genvar i;
-    for(i = 3; i<15; i = i+1) begin
-        assign slv_hrdata_v[i] = 0;
-        assign slv_hresp_v[i] = 0;
-        assign slv_hready_in_v[i] = 0;
-        assign slv_hsplit_v[i] = 0;
+   genvar j;
+    for(j = 3; j<15; j = j+1) begin
+        assign slv_hrdata_v[j] = 0;
+        assign slv_hresp_v[j] = 0;
+        // assign slv_hready_in_v[j] = 0;
+        assign slv_hsplit_v[j] = 0;
     end
 
 endgenerate
@@ -325,12 +328,13 @@ picorv32 cpu (
     .mem_rdata(cpu_mem_rdata)
 );
 
-picorv32_ahb wrapper( .clk(clk), .resetn(rstn), 
+pico_to_ahb wrapper( .clk(clk), .resetn(rstn), 
     .mem_valid(cpu_mem_valid), .mem_ready(cpu_mem_ready), .mem_addr(cpu_mem_addr), 
     .mem_wdata(cpu_mem_wdata), .mem_wstrb(cpu_mem_wstrb), .mem_rdata(cpu_mem_rdata),
 
-    .HADDR(cpu_haddr), .HTRANS(cpu_htrans), .HSIZE(cpu_hsize), .HWRITE(cpu_hwrite), .HWDATA(cpu_hwdata),
-    .HREADY(cpu_hready), .HRDATA(cpu_hrdata), .HRESP(cpu_hresp)
+    .mst_haddr(cpu_haddr), .mst_htrans(cpu_htrans), .mst_hsize(cpu_hsize), .mst_hwrite(cpu_hwrite), .mst_hwdata(cpu_hwdata),
+    .mst_hready_out(cpu_hready), .mst_hrdata_out(cpu_hrdata), .mst_hresp_out(cpu_hresp), .mst_hbusreq(cpu_hbusreq),
+    .mst_hlock(cpu_hlock), .mst_hburst(cpu_hburst), .mst_hprot(cpu_hprot), .mst_hgrant(cpu_hgrant)
      );
 
 
@@ -417,6 +421,41 @@ bridge (
 
 );
 
+// // =======================================================================
+// // SHRIYA's AHB-TO-APB BRIDGE SUBSYSTEM
+// // =======================================================================
+// AHB_APB_top bridge (
+//     // AHB Slave Interface (Connected to Arbiter Slave 0)
+//     .Hclk      (clk),
+//     .Hresetn   (rstn),
+//     .Hwrite    (slv_hwrite_out),
+//     .Hreadyin  (slv_hready_in), // Arbiter's global ready line
+//     .Htrans    (slv_htrans_out),
+//     .Hwdata    (slv_hwdata_out),
+//     .Haddr     (slv_haddr_out),
+//     .Hreadyout (bridge_h_ready_out),
+//     .Hresp     (bridge_h_resp),
+//     .Hrdata    (bridge_h_rdata),
+
+//     // Shared APB Bus Signals
+//     .Penable   (bridge_p_enable),
+//     .Pwrite    (bridge_p_write),
+//     .Paddr     (bridge_p_addr),
+//     .Pwdata    (bridge_p_wdata),
+
+//     // Peripheral Selects (Decoded Internally!)
+//     .PSEL_I2S    (i2s_PSEL),
+//     .PSEL_GPIO   (i2s_tx_PSEL), // Hijacking the GPIO slot for I2S_TX
+//     .PSEL_Timers (),            // Unconnected/Floating for now
+//     .PSEL_WDT    (),            // Unconnected/Floating for now
+
+//     // Return Data and Handshakes
+//     .PRDATA_I2S    (i2s_PRDATA),     .PREADY_I2S    (i2s_PREADY),
+//     .PRDATA_GPIO   (i2s_tx_PRDATA),  .PREADY_GPIO   (i2s_tx_PREADY), // Hijacked!
+//     .PRDATA_Timers (32'b0),          .PREADY_Timers (1'b1),          // Tie-offs for unused ports for now
+//     .PRDATA_WDT    (32'b0),          .PREADY_WDT    (1'b1)           // Tie-offs for unused ports for now
+// );
+
 SRAM_1024x32_ahb_wrapper sram0 (
     .HCLK(clk),
     .HRESETn(rstn),
@@ -442,8 +481,8 @@ EF_I2S_APB #(.AW(i2s_AW), .DW(i2s_DW)) i2s_apb (
     .PREADY(i2s_PREADY),
     .PRDATA(i2s_PRDATA),
     .IRQ(i2s_IRQ),
-    .ws(ws),
-    .sck(sck),
+    .ws(rx_ws),
+    .sck(rx_sck),
     .sdi(sdi)
 );
 
@@ -459,8 +498,8 @@ EF_I2S_TX_APB #(.AW(i2s_AW), .DW(i2s_DW)) i2s_tx_apb (
     .PRDATA(i2s_tx_PRDATA),
     .IRQ(i2s_tx_IRQ),
     .sdo(sdo),
-    .ws(ws),
-    .sck(sck)
+    .ws(tx_ws),
+    .sck(tx_sck)
 );
 
 boot_rom_ahb boot_rom (

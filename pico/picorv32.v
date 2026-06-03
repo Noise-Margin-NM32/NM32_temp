@@ -23,7 +23,7 @@
 /* verilator lint_off CASEINCOMPLETE */
 
 `timescale 1 ns / 1 ps
-// `default_nettype none
+ `default_nettype wire
 // `define DEBUGNETS
 // `define DEBUGREGS
 // `define DEBUGASM

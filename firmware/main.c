@@ -1,66 +1,70 @@
 #include <stdint.h>
 
-// =======================================================================
-// 1. BASE ADDRESS MAPPING
-// =======================================================================
+// 1. Hardware Base Addresses (From your ahb_arbiter parameters)
 #define I2S_RX_BASE 0x20000000
 #define I2S_TX_BASE 0x20010000
 #define SRAM_BASE   0x30000000
 
-// =======================================================================
-// 2. REGISTER POINTERS
-// =======================================================================
-#define RX_DATA (*((volatile uint32_t*)(I2S_RX_BASE + 0x0000))) 
-#define RX_PR   (*((volatile uint32_t*)(I2S_RX_BASE + 0x0004))) 
-#define RX_CTRL (*((volatile uint32_t*)(I2S_RX_BASE + 0x0010))) 
-#define RX_CFG  (*((volatile uint32_t*)(I2S_RX_BASE + 0x0014))) 
-#define RX_GCLK (*((volatile uint32_t*)(I2S_RX_BASE + 0xFF10))) 
+// 2. Memory-Mapped Pointers
+// We pick an arbitrary offset in SRAM (0x0100) to store our test word
+#define SRAM_TEST_ADDR (*((volatile uint32_t*)(SRAM_BASE + 0x0100)))
 
-#define TX_DATA (*((volatile uint32_t*)(I2S_TX_BASE + 0x0000))) 
-#define TX_PR   (*((volatile uint32_t*)(I2S_TX_BASE + 0x0004))) 
-#define TX_CTRL (*((volatile uint32_t*)(I2S_TX_BASE + 0x0010))) 
-#define TX_CFG  (*((volatile uint32_t*)(I2S_TX_BASE + 0x0014))) 
-#define TX_GCLK (*((volatile uint32_t*)(I2S_TX_BASE + 0xFF10))) 
+// Standard Efabless IP register offsets (Data = 0x00, Control = 0x04)
+#define I2S_RX_DATA    (*((volatile uint32_t*)(I2S_RX_BASE + 0x00)))
+#define I2S_RX_CTRL    (*((volatile uint32_t*)(I2S_RX_BASE + 0x01)))
 
-#define SRAM    ((volatile uint32_t*)SRAM_BASE)
+#define I2S_TX_DATA    (*((volatile uint32_t*)(I2S_TX_BASE + 0x00)))
+#define I2S_TX_CTRL    (*((volatile uint32_t*)(I2S_TX_BASE + 0x01)))
 
 int main() {
-    // --- PHASE A: ENABLE CLOCK GATES ---
-    RX_GCLK = 1;
-    TX_GCLK = 1;
+    uint32_t test_word = 0xDEADBEEF;
+    uint32_t received_word = 0;
 
-    // --- PHASE B: CONFIGURE AUDIO FORMAT ---
+    // Turn on the I2S IP cores
+    I2S_RX_CTRL = 1;
+    I2S_TX_CTRL = 1;
+
+    // ---------------------------------------------------------
+    // PHASE 1: SRAM TEST
+    // ---------------------------------------------------------
     
-    RX_CFG = (32 << 4) | (1 << 2) | 2;;
-    TX_CFG = (32 << 4) | (0 << 2) | 2;;
+    // Write the word into the SRAM via AHB
+    SRAM_TEST_ADDR = test_word;
 
-    // --- PHASE C: SET CLOCK PRESCALERS (16 kHz Target) ---
-    // 50 MHz PCLK / (2 * 1.024 MHz SCK) = ~24
-    RX_PR = 24;
-    TX_PR = 24;
+    // Burn a few CPU cycles just to put empty space in the Vivado 
+    // waveforms so the transactions are easy to see visually.
+    for (volatile int i = 0; i < 5; i++);
 
-    // --- PHASE D: ENABLE MODULES AND FIFOS ---
-    RX_CTRL = 0x3;
-    TX_CTRL = 0x3;
+    // ---------------------------------------------------------
+    // PHASE 2: I2S TRANSMISSION
+    // ---------------------------------------------------------
 
-    // --- PHASE E: BLOCK-BASED DSP LOOP ---
-    while(1) {
-        
-        // Step 1: Collect a block of 512 samples into SRAM
-        // The CPU will stay in this loop. Because of the APB PREADY stall,
-        // it will naturally pace itself to the 16 kHz microphone speed.
-        for (uint32_t i = 0; i < 512; i++) {
-            SRAM[i] = RX_DATA;
-        }
+    // Read the word out of SRAM and instantly shove it into the TX module
+    I2S_TX_DATA = SRAM_TEST_ADDR;
 
-        // ---------------------------------------------------------
-        // [ YOUR FFT AND AUDIO FILTERING MATH WOULD GO HERE ]
-        // ---------------------------------------------------------
+    // ---------------------------------------------------------
+    // PHASE 3: THE HARDWARE DELAY
+    // ---------------------------------------------------------
+    
+    // The C code must wait while the hardware shifts the 32 bits 
+    // across the loopback wire. I2S clocks are usually much slower 
+    // than CPU clocks, so we wait a few hundred cycles.
+    for (volatile int i = 0; i < 500; i++);
 
-        // Step 2: Play the processed block of 512 samples out to the speaker
-        for (uint32_t i = 0; i < 512; i++) {
-            TX_DATA = SRAM[i];
-        }
+    // ---------------------------------------------------------
+    // PHASE 4: THE READBACK & VERIFICATION
+    // ---------------------------------------------------------
+
+    // Read the fully assembled word out of the RX module
+    received_word = I2S_RX_DATA;
+
+    // Trap the CPU to verify success
+    if (received_word == 0xDEADBEEF) {
+        // SUCCESS: The chip works perfectly!
+        while(1); 
+    } else {
+        // FAIL: Something went wrong in the transfer.
+        while(1);
     }
 
     return 0;

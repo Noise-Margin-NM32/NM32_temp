@@ -10,7 +10,7 @@ module boot_rom_ahb (
     input  wire        HREADY,
     
     output wire        HREADYOUT,
-    output reg  [31:0] HRDATA,
+    output wire  [31:0] HRDATA,
     output wire [1:0]  HRESP
 );
 
@@ -24,7 +24,7 @@ module boot_rom_ahb (
 
     // --- AHB Address Phase ---
     reg read_en;
-    reg [31:0] latched_addr;
+    //reg [31:0] latched_addr;
 
     always @(posedge HCLK or negedge HRESETn) begin
         if (!HRESETn) begin
@@ -39,13 +39,40 @@ module boot_rom_ahb (
         end
     end
 
-    // --- AHB Data Phase ---
-    always @(posedge HCLK) begin
-        if (read_en) begin
-            // Shift the address down by 2 (divide by 4) to convert byte-address to word-index
-            HRDATA <= memory[latched_addr[11:2]];
+    // // --- AHB Data Phase ---
+    // always @(posedge HCLK) begin
+    //     if (read_en) begin
+    //         // Shift the address down by 2 (divide by 4) to convert byte-address to word-index
+    //         HRDATA <= memory[latched_addr[11:2]];
+    //     end
+    // end
+
+    // // --- AHB Data Phase (Combinational) ---
+    // // The moment latched_addr updates on the clock edge, the memory array 
+    // // is instantly indexed, guaranteeing HRDATA is valid for the CPU to read!
+    // assign HRDATA = read_en ? memory[latched_addr[11:2]] : 32'h00000000;
+
+    // --- AHB Address Latch ---
+    reg [31:0] latched_addr;
+
+    always @(posedge HCLK or negedge HRESETn) begin
+        if (!HRESETn) begin
+            latched_addr <= 32'b0;
+        end else if (HREADY && HSEL) begin
+            // Only update the address when the CPU specifically talks to the ROM
+            latched_addr <= HADDR;
         end
     end
+
+    // --- AHB Data Output ---
+    // Instantly output the memory at the latched address. 
+    // Because we never clear this to zero, the data stays perfectly stable 
+    // on the bus, no matter how long the CPU wrapper takes to read it!
+    assign HRDATA = memory[latched_addr[11:2]];
+
+    // assign HREADYOUT = 1'b1; 
+    // assign HRESP     = 2'b00;
+
 
     // ROM is always instantly ready and always returns OKAY (00)
     assign HREADYOUT = 1'b1; 

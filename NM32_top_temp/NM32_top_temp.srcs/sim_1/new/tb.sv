@@ -1,64 +1,81 @@
 `timescale 1ns / 1ps
-//////////////////////////////////////////////////////////////////////////////////
-// Company: 
-// Engineer: 
-// 
-// Create Date: 05/30/2026 09:13:35 AM
-// Design Name: 
-// Module Name: tb
-// Project Name: 
-// Target Devices: 
-// Tool Versions: 
-// Description: 
-// 
-// Dependencies: 
-// 
-// Revision:
-// Revision 0.01 - File Created
-// Additional Comments:
-// 
-//////////////////////////////////////////////////////////////////////////////////
 
+module tb;
 
-module tb();
-    reg clk = 0;
-    reg pclk = 0;
-    reg rstn = 0;
+    // ---------------------------------------------------------
+    // 1. Core Signals
+    // ---------------------------------------------------------
+    reg clk;
+    reg rstn;
 
-    wire [0:0] ws;
-    wire [0:0] sck;
-    reg [0:0] sdi = 0;
-    wire [0:0] sdo;
+    // ---------------------------------------------------------
+    // 2. Loopback Wires
+    // ---------------------------------------------------------
+    wire [1-1:0] rx_ws;
+    wire [1-1:0] rx_sck;
+    wire [1-1:0] sdi;
     
-    always #5 clk = ~clk;
-    always #10 pclk = ~pclk;
+    wire [1-1:0] tx_ws;
+    wire [1-1:0] tx_sck;
+    wire [1-1:0] sdo;
 
+    // The Physical Wire Loopback: 
+    // TX drives the wires, RX listens to them.
+    // assign rx_ws  = tx_ws;
+    // assign rx_sck = tx_sck;
+    assign sdi    = sdo;
+
+    // ---------------------------------------------------------
+    // 3. Device Under Test (DUT) Instantiation
+    // ---------------------------------------------------------
     nm32_top dut (
         .clk(clk),
+        .pclk(clk), // Assuming peripheral clock is the same as system clock
         .rstn(rstn),
-        .pclk(pclk),
-        .ws(ws),
-        .sck(sck),
+        
+        // I2S RX Ports (Listening)
+        .rx_ws(rx_ws),
+        .rx_sck(rx_sck),
         .sdi(sdi),
+        
+        // I2S TX Ports (Driving)
+        .tx_ws(tx_ws),
+        .tx_sck(tx_sck),
         .sdo(sdo)
     );
 
+    // ---------------------------------------------------------
+    // 4. Clock Generation (100MHz)
+    // ---------------------------------------------------------
     initial begin
-        // Tell the simulator to record every single wire's voltage changes
-        $dumpfile("soc_waveform.vcd");
-        $dumpvars(0, tb);
+        clk = 0;
+        // The #5 delay prevents the SIGSEGV crash! (10ns period = 100MHz)
+        forever #5 clk = ~clk; 
+    end
 
-        $display("--- Powering on NM32 SoC ---");
+    // ---------------------------------------------------------
+    // 5. Reset Sequence and Safety Timeout
+    // ---------------------------------------------------------
+    initial begin
+        // Hold reset low to clear all registers
+        rstn = 0;
         
-        // Hold reset low for a few clock cycles to stabilize the silicon
-        #20;
+        // Wait 100ns, then release reset
+        #100;
         rstn = 1;
-        $display("--- Reset released. CPU is fetching from ROM... ---");
 
-        // Let the simulation run for 50,000 nanoseconds
-        #50000;
+        // --- SAFETY TIMEOUT ---
+        // Because your C code ends in an infinite while(1) loop, 
+        // the simulation will run forever if you click "Run All".
+        // This command forces Vivado to stop after 1 millisecond.
+        // (1 ms is plenty of time for a 100MHz CPU to run the test)
+        #1000000; 
         
-        $display("--- Simulation complete ---");
+        $display("--------------------------------------------------");
+        $display(" Simulation reached 1ms timeout and finished safely.");
+        $display(" Check your waveforms!");
+        $display("--------------------------------------------------");
         $finish;
     end
+
 endmodule

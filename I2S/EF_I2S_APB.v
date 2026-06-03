@@ -65,7 +65,8 @@ module EF_I2S_APB #(
       // USE_POWER_PINS
       .clk(PCLK),
       .clk_en(clk_gated_en),
-      .clk_o(clk_g)
+      .clk_o(clk_g),
+      .rst_n(PRESETn)
   );
 
   wire          clk = clk_g;

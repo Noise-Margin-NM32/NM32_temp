@@ -13,8 +13,9 @@
 	See the License for the specific language governing permissions and 
 	limitations under the License.
 */
-
+`timescale 1ns / 1ps
 `default_nettype        none
+
 
 
 
@@ -102,7 +103,7 @@ module EF_I2S #(parameter DW=32, AW=4) (
 
     input   wire            fifo_en,
     input   wire            fifo_rd,
-    input   wire            fifo_clr,
+    // input   wire            fifo_clr,
     input   wire [AW-1:0]   fifo_level_threshold,
     input   wire            fifo_flush,
     output  wire            fifo_full,

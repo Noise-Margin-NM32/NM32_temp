@@ -1,0 +1,467 @@
+$date
+	Sat May 23 15:58:37 2026
+$end
+$version
+	Icarus Verilog
+$end
+$timescale
+	1s
+$end
+$scope module dmatestbench $end
+$var wire 1 ! PREADY $end
+$var wire 1 " irq $end
+$var wire 1 # check $end
+$var wire 32 $ PRDATA [31:0] $end
+$var wire 1 % HWRITE $end
+$var wire 32 & HWDATA [31:0] $end
+$var wire 2 ' HTRANS [1:0] $end
+$var wire 1 ( HBUSREQ $end
+$var wire 32 ) HADDR [31:0] $end
+$var reg 1 * HCLK $end
+$var reg 1 + HGRANT $end
+$var reg 32 , HRDATA [31:0] $end
+$var reg 1 - HREADY $end
+$var reg 1 . HRESETN $end
+$var reg 32 / PADDR [31:0] $end
+$var reg 1 0 PCLK $end
+$var reg 1 1 PENABLE $end
+$var reg 1 2 PRESETN $end
+$var reg 1 3 PSEL $end
+$var reg 32 4 PWDATA [31:0] $end
+$var reg 1 5 PWRITE $end
+$scope module dmac $end
+$var wire 1 * HCLK $end
+$var wire 1 + HGRANT $end
+$var wire 32 6 HRDATA [31:0] $end
+$var wire 1 - HREADY $end
+$var wire 1 . HRESETN $end
+$var wire 32 7 PADDR [31:0] $end
+$var wire 1 0 PCLK $end
+$var wire 1 1 PENABLE $end
+$var wire 1 ! PREADY $end
+$var wire 1 2 PRESETN $end
+$var wire 1 3 PSEL $end
+$var wire 32 8 PWDATA [31:0] $end
+$var wire 1 5 PWRITE $end
+$var reg 32 9 HADDR [31:0] $end
+$var reg 1 ( HBUSREQ $end
+$var reg 2 : HTRANS [1:0] $end
+$var reg 32 ; HWDATA [31:0] $end
+$var reg 1 % HWRITE $end
+$var reg 32 < PRDATA [31:0] $end
+$var reg 1 # check $end
+$var reg 32 = ctrl_reg [31:0] $end
+$var reg 3 > current_state [2:0] $end
+$var reg 32 ? data_buf [31:0] $end
+$var reg 32 @ dst_addr_reg [31:0] $end
+$var reg 32 A dst_ptr [31:0] $end
+$var reg 1 " irq $end
+$var reg 32 B jump [31:0] $end
+$var reg 32 C len_cnt [31:0] $end
+$var reg 32 D len_reg [31:0] $end
+$var reg 3 E next_state [2:0] $end
+$var reg 32 F src_addr_reg [31:0] $end
+$var reg 32 G src_ptr [31:0] $end
+$upscope $end
+$scope task apb_write $end
+$var reg 32 H addr [31:0] $end
+$var reg 32 I data [31:0] $end
+$upscope $end
+$upscope $end
+$enddefinitions $end
+#0
+$dumpvars
+b100000 I
+b0 H
+b0 G
+b0 F
+b0 E
+b0 D
+b0 C
+b1 B
+b0 A
+b0 @
+bx ?
+b0 >
+b0 =
+bx <
+b0 ;
+b0 :
+b0 9
+bx 8
+bx 7
+bx 6
+x5
+bx 4
+x3
+02
+x1
+00
+bx /
+0.
+x-
+bx ,
+x+
+0*
+b0 )
+0(
+b0 '
+b0 &
+0%
+bx $
+x#
+0"
+1!
+$end
+#5
+1*
+#10
+01
+b100000 4
+b100000 8
+b0 /
+b0 7
+15
+13
+0*
+10
+#15
+1*
+#20
+0*
+00
+#25
+1*
+#30
+11
+0*
+10
+#35
+1*
+#40
+0*
+00
+#45
+1*
+#50
+b0 I
+b100 H
+01
+03
+0*
+10
+#55
+1*
+#60
+0*
+00
+#65
+1.
+1*
+#70
+b0 4
+b0 8
+b100 /
+b100 7
+13
+0*
+10
+#75
+1*
+#80
+0*
+00
+#85
+1*
+#90
+11
+12
+0*
+10
+#95
+1*
+#100
+0*
+00
+#105
+1*
+#110
+b100 I
+b1000 H
+01
+03
+0*
+10
+#115
+1*
+#120
+0*
+00
+#125
+1*
+#130
+b100 4
+b100 8
+b1000 /
+b1000 7
+13
+0*
+10
+#135
+1*
+#140
+0*
+00
+#145
+1*
+#150
+b100 D
+11
+0*
+10
+#155
+1*
+#160
+0*
+00
+#165
+1*
+#170
+b1 I
+b1100 H
+01
+03
+0*
+10
+#175
+1*
+#180
+0*
+00
+#185
+1*
+#190
+b1 4
+b1 8
+b1100 /
+b1100 7
+13
+0*
+10
+#195
+1*
+#200
+0*
+00
+#205
+1*
+#210
+b1 E
+b1 =
+11
+0*
+10
+#215
+1(
+b0xx E
+b1 >
+b100 C
+1*
+#220
+0*
+00
+#225
+0(
+b0 E
+b0xx >
+1*
+#230
+0(
+1+
+01
+03
+0*
+10
+#235
+b1 E
+b0 >
+1*
+#240
+0*
+00
+#245
+1(
+b10 E
+b1 >
+1*
+#250
+0*
+10
+#255
+b10 '
+b10 :
+b100 E
+b10 >
+1-
+1*
+#260
+0*
+00
+#265
+1%
+b100 >
+0-
+1*
+#270
+0*
+10
+#275
+b1 G
+b101 E
+1-
+1*
+#280
+0*
+00
+#285
+b0 '
+b0 :
+0(
+b101 >
+b101 E
+b0 ,
+b0 6
+0-
+1*
+#290
+0*
+10
+#295
+0(
+b11 C
+b1 A
+bx &
+bx ;
+1#
+b10 E
+1-
+1*
+#300
+0*
+00
+#305
+0%
+b10 '
+b10 :
+b1 )
+b1 9
+1(
+b10 >
+b100 E
+0-
+1*
+#310
+0*
+10
+#315
+1%
+b101 E
+b100 >
+1-
+1*
+#320
+0*
+00
+#325
+b0 '
+b0 :
+0(
+b101 >
+b101 E
+bx ,
+bx 6
+0-
+1*
+#330
+0*
+10
+#335
+0(
+b10 C
+b10 A
+b10 E
+1-
+1*
+#340
+0*
+00
+#345
+0%
+b10 '
+b10 :
+1(
+b10 >
+b100 E
+0-
+1*
+#350
+0*
+10
+#355
+1%
+b10 )
+b10 9
+b101 E
+b100 >
+1-
+1*
+#360
+0*
+00
+#365
+b0 '
+b0 :
+0(
+b101 >
+b101 E
+0-
+1*
+#370
+0*
+10
+#375
+0(
+b1 C
+b11 A
+b110 E
+1-
+1*
+#380
+0*
+00
+#385
+b110 >
+b0 E
+0-
+1*
+#390
+0*
+10
+#395
+b1 E
+b0 >
+1"
+1-
+1*
+#400
+0*
+00
+#405
+1(
+b10 E
+b100 C
+b0 A
+b0 G
+b1 >
+0-
+1*

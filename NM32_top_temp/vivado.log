@@ -1,0 +1,114 @@
+#-----------------------------------------------------------
+# Vivado v2022.2 (64-bit)
+# SW Build 3671981 on Fri Oct 14 04:59:54 MDT 2022
+# IP Build 3669848 on Fri Oct 14 08:30:02 MDT 2022
+# Start of session at: Mon May 18 20:55:17 2026
+# Process ID: 9557
+# Current directory: /home/omkar/SoC_0.1/NM32_top_temp
+# Command line: vivado NM32_top_temp.xpr
+# Log file: /home/omkar/SoC_0.1/NM32_top_temp/vivado.log
+# Journal file: /home/omkar/SoC_0.1/NM32_top_temp/vivado.jou
+# Running On: omkar-Victus-by-HP-Gaming-Laptop-15-fa0xxx, OS: Linux, CPU Frequency: 400.000 MHz, CPU Physical cores: 10, Host memory: 16414 MB
+#-----------------------------------------------------------
+start_gui
+open_project NM32_top_temp.xpr
+WARNING: [Board 49-26] cannot add Board Part xilinx.com:ac701:part0:1.4 available at /tools/Xilinx/Vivado/2022.2/data/xhub/boards/XilinxBoardStore/boards/Xilinx/ac701/1.4/board.xml as part xc7a200tfbg676-2 specified in board_part file is either invalid or not available
+WARNING: [Board 49-26] cannot add Board Part xilinx.com:kc705:part0:1.6 available at /tools/Xilinx/Vivado/2022.2/data/xhub/boards/XilinxBoardStore/boards/Xilinx/kc705/1.6/board.xml as part xc7k325tffg900-2 specified in board_part file is either invalid or not available
+WARNING: [Board 49-26] cannot add Board Part xilinx.com:kcu105:part0:1.6 available at /tools/Xilinx/Vivado/2022.2/data/xhub/boards/XilinxBoardStore/boards/Xilinx/kcu105/1.6/board.xml as part xcku040-ffva1156-2-e specified in board_part file is either invalid or not available
+WARNING: [Board 49-26] cannot add Board Part xilinx.com:kcu105:part0:1.7 available at /tools/Xilinx/Vivado/2022.2/data/xhub/boards/XilinxBoardStore/boards/Xilinx/kcu105/1.7/board.xml as part xcku040-ffva1156-2-e specified in board_part file is either invalid or not available
+WARNING: [Board 49-26] cannot add Board Part xilinx.com:kcu1500:part0:1.2 available at /tools/Xilinx/Vivado/2022.2/data/xhub/boards/XilinxBoardStore/boards/Xilinx/kcu1500/1.2/board.xml as part xcku115-flvb2104-2-e specified in board_part file is either invalid or not available
+WARNING: [Board 49-26] cannot add Board Part xilinx.com:sp701:part0:1.0 available at /tools/Xilinx/Vivado/2022.2/data/xhub/boards/XilinxBoardStore/boards/Xilinx/sp701/1.0/board.xml as part xc7s100fgga676-2 specified in board_part file is either invalid or not available
+WARNING: [Board 49-26] cannot add Board Part xilinx.com:sp701:part0:1.1 available at /tools/Xilinx/Vivado/2022.2/data/xhub/boards/XilinxBoardStore/boards/Xilinx/sp701/1.1/board.xml as part xc7s100fgga676-2 specified in board_part file is either invalid or not available
+WARNING: [Board 49-26] cannot add Board Part xilinx.com:vc707:part0:1.4 available at /tools/Xilinx/Vivado/2022.2/data/xhub/boards/XilinxBoardStore/boards/Xilinx/vc707/1.4/board.xml as part xc7vx485tffg1761-2 specified in board_part file is either invalid or not available
+WARNING: [Board 49-26] cannot add Board Part xilinx.com:vc709:part0:1.8 available at /tools/Xilinx/Vivado/2022.2/data/xhub/boards/XilinxBoardStore/boards/Xilinx/vc709/1.8/board.xml as part xc7vx690tffg1761-2 specified in board_part file is either invalid or not available
+WARNING: [Board 49-26] cannot add Board Part xilinx.com:vck190:part0:2.2 available at /tools/Xilinx/Vivado/2022.2/data/xhub/boards/XilinxBoardStore/boards/Xilinx/vck190/production/2.2/board.xml as part xcvc1902-vsva2197-2mp-e-s specified in board_part file is either invalid or not available
+WARNING: [Board 49-26] cannot add Board Part xilinx.com:vck190:part0:3.0 available at /tools/Xilinx/Vivado/2022.2/data/xhub/boards/XilinxBoardStore/boards/Xilinx/vck190/production/3.0/board.xml as part xcvc1902-vsva2197-2mp-e-s specified in board_part file is either invalid or not available
+WARNING: [Board 49-26] cannot add Board Part xilinx.com:vck190:part0:3.1 available at /tools/Xilinx/Vivado/2022.2/data/xhub/boards/XilinxBoardStore/boards/Xilinx/vck190/production/3.1/board.xml as part xcvc1902-vsva2197-2mp-e-s specified in board_part file is either invalid or not available
+WARNING: [Board 49-26] cannot add Board Part xilinx.com:vck190_newl:part0:1.0 available at /tools/Xilinx/Vivado/2022.2/data/xhub/boards/XilinxBoardStore/boards/Xilinx/vck190_newl/production/1.0/board.xml as part xcvc1902-vsva2197-2mp-e-s specified in board_part file is either invalid or not available
+WARNING: [Board 49-26] cannot add Board Part xilinx.com:vcu108:part0:1.6 available at /tools/Xilinx/Vivado/2022.2/data/xhub/boards/XilinxBoardStore/boards/Xilinx/vcu108/1.6/board.xml as part xcvu095-ffva2104-2-e specified in board_part file is either invalid or not available
+WARNING: [Board 49-26] cannot add Board Part xilinx.com:vcu108:part0:1.7 available at /tools/Xilinx/Vivado/2022.2/data/xhub/boards/XilinxBoardStore/boards/Xilinx/vcu108/1.7/board.xml as part xcvu095-ffva2104-2-e specified in board_part file is either invalid or not available
+WARNING: [Board 49-26] cannot add Board Part xilinx.com:vcu110:part0:1.4 available at /tools/Xilinx/Vivado/2022.2/data/xhub/boards/XilinxBoardStore/boards/Xilinx/vcu110/1.4/board.xml as part xcvu190-flgc2104-2-e specified in board_part file is either invalid or not available
+WARNING: [Board 49-26] cannot add Board Part xilinx.com:vek280_es:part0:1.0 available at /tools/Xilinx/Vivado/2022.2/data/xhub/boards/XilinxBoardStore/boards/Xilinx/vek280/es/1.0/board.xml as part xcve2802-vsvh1760-2lp-e-s-es1 specified in board_part file is either invalid or not available
+WARNING: [Board 49-26] cannot add Board Part xilinx.com:vhk158_es:part0:1.0 available at /tools/Xilinx/Vivado/2022.2/data/xhub/boards/XilinxBoardStore/boards/Xilinx/vhk158/es/1.0/board.xml as part xcvh1582-vsva3697-2mp-e-s-es1 specified in board_part file is either invalid or not available
+WARNING: [Board 49-26] cannot add Board Part xilinx.com:vmk180:part0:2.2 available at /tools/Xilinx/Vivado/2022.2/data/xhub/boards/XilinxBoardStore/boards/Xilinx/vmk180/production/2.2/board.xml as part xcvm1802-vsva2197-2mp-e-s specified in board_part file is either invalid or not available
+WARNING: [Board 49-26] cannot add Board Part xilinx.com:vmk180:part0:3.0 available at /tools/Xilinx/Vivado/2022.2/data/xhub/boards/XilinxBoardStore/boards/Xilinx/vmk180/production/3.0/board.xml as part xcvm1802-vsva2197-2mp-e-s specified in board_part file is either invalid or not available
+WARNING: [Board 49-26] cannot add Board Part xilinx.com:vmk180:part0:3.1 available at /tools/Xilinx/Vivado/2022.2/data/xhub/boards/XilinxBoardStore/boards/Xilinx/vmk180/production/3.1/board.xml as part xcvm1802-vsva2197-2mp-e-s specified in board_part file is either invalid or not available
+WARNING: [Board 49-26] cannot add Board Part xilinx.com:vmk180_newl:part0:1.0 available at /tools/Xilinx/Vivado/2022.2/data/xhub/boards/XilinxBoardStore/boards/Xilinx/vmk180_newl/production/1.0/board.xml as part xcvm1802-vsva2197-2mp-e-s specified in board_part file is either invalid or not available
+WARNING: [Board 49-26] cannot add Board Part xilinx.com:vpk120:part0:1.0 available at /tools/Xilinx/Vivado/2022.2/data/xhub/boards/XilinxBoardStore/boards/Xilinx/vpk120/production/1.0/board.xml as part xcvp1202-vsva2785-2mp-e-s specified in board_part file is either invalid or not available
+WARNING: [Board 49-26] cannot add Board Part xilinx.com:vpk120_es:part0:1.2 available at /tools/Xilinx/Vivado/2022.2/data/xhub/boards/XilinxBoardStore/boards/Xilinx/vpk120/es/1.2/board.xml as part xcvp1202-vsva2785-2mp-e-s-es1 specified in board_part file is either invalid or not available
+WARNING: [Board 49-26] cannot add Board Part xilinx.com:vpk120_es_revb:part0:1.0 available at /tools/Xilinx/Vivado/2022.2/data/xhub/boards/XilinxBoardStore/boards/Xilinx/vpk120_revb/es/1.0/board.xml as part xcvp1202-vsva2785-2mp-e-s-es1 specified in board_part file is either invalid or not available
+WARNING: [Board 49-26] cannot add Board Part xilinx.com:vpk180_es:part0:1.0 available at /tools/Xilinx/Vivado/2022.2/data/xhub/boards/XilinxBoardStore/boards/Xilinx/vpk180/es/1.0/board.xml as part xcvp1802-lsvc4072-2mp-e-s-es1 specified in board_part file is either invalid or not available
+WARNING: [Board 49-26] cannot add Board Part xilinx.com:zcu208ld:part0:2.0 available at /tools/Xilinx/Vivado/2022.2/data/xhub/boards/XilinxBoardStore/boards/Xilinx/zcu208ld/production/2.0/board.xml as part xczu58dr-fsvg1517-2-i specified in board_part file is either invalid or not available
+WARNING: [Board 49-26] cannot add Board Part xilinx.com:zcu216ld:part0:2.0 available at /tools/Xilinx/Vivado/2022.2/data/xhub/boards/XilinxBoardStore/boards/Xilinx/zcu216ld/production/2.0/board.xml as part xczu59dr-ffvf1760-2-i specified in board_part file is either invalid or not available
+WARNING: [Board 49-26] cannot add Board Part xilinx.com:zcu670:part0:2.0 available at /tools/Xilinx/Vivado/2022.2/data/xhub/boards/XilinxBoardStore/boards/Xilinx/zcu670/2.0/board.xml as part xczu67dr-fsve1156-2-i specified in board_part file is either invalid or not available
+WARNING: [Board 49-26] cannot add Board Part xilinx.com:zcu670ld:part0:1.0 available at /tools/Xilinx/Vivado/2022.2/data/xhub/boards/XilinxBoardStore/boards/Xilinx/zcu670ld/1.0/board.xml as part xczu57dr-fsve1156-2-i specified in board_part file is either invalid or not available
+INFO: [filemgmt 56-3] Default IP Output Path : Could not find the directory '/home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.gen/sources_1'.
+Scanning sources...
+Finished scanning sources
+INFO: [IP_Flow 19-234] Refreshing IP repositories
+INFO: [IP_Flow 19-1704] No user IP repositories specified
+INFO: [IP_Flow 19-2313] Loaded Vivado IP repository '/tools/Xilinx/Vivado/2022.2/data/ip'.
+update_compile_order -fileset sources_1
+create_bd_design "temp_top"
+Wrote  : </home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.srcs/sources_1/bd/temp_top/temp_top.bd> 
+update_compile_order -fileset sources_1
+generate_target all [get_files  /home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.srcs/sources_1/bd/temp_top/temp_top.bd]
+Wrote  : </home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.srcs/sources_1/bd/temp_top/temp_top.bd> 
+Wrote  : </home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.srcs/sources_1/bd/temp_top/ui/bd_2b267b8a.ui> 
+Verilog Output written to : /home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.gen/sources_1/bd/temp_top/synth/temp_top.v
+Verilog Output written to : /home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.gen/sources_1/bd/temp_top/sim/temp_top.v
+Verilog Output written to : /home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.gen/sources_1/bd/temp_top/hdl/temp_top_wrapper.v
+Exporting to file /home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.gen/sources_1/bd/temp_top/hw_handoff/temp_top.hwh
+Generated Hardware Definition File /home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.gen/sources_1/bd/temp_top/synth/temp_top.hwdef
+export_ip_user_files -of_objects [get_files /home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.srcs/sources_1/bd/temp_top/temp_top.bd] -no_script -sync -force -quiet
+create_ip_run [get_files -of_objects [get_fileset sources_1] /home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.srcs/sources_1/bd/temp_top/temp_top.bd]
+export_simulation -of_objects [get_files /home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.srcs/sources_1/bd/temp_top/temp_top.bd] -directory /home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.ip_user_files/sim_scripts -ip_user_files_dir /home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.ip_user_files -ipstatic_source_dir /home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.ip_user_files/ipstatic -lib_map_path [list {modelsim=/home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.cache/compile_simlib/modelsim} {questa=/home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.cache/compile_simlib/questa} {xcelium=/home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.cache/compile_simlib/xcelium} {vcs=/home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.cache/compile_simlib/vcs} {riviera=/home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.cache/compile_simlib/riviera}] -use_ip_compiled_libs -force -quiet
+open_bd_design {/home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.srcs/sources_1/bd/temp_top/temp_top.bd}
+export_ip_user_files -of_objects  [get_files /home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.srcs/sources_1/bd/temp_top/temp_top.bd] -no_script -reset -force -quiet
+remove_files  /home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.srcs/sources_1/bd/temp_top/temp_top.bd
+Wrote  : </home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.srcs/sources_1/bd/temp_top/ui/bd_2b267b8a.ui> 
+file delete -force /home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.srcs/sources_1/bd/temp_top
+file delete -force /home/omkar/SoC_0.1/NM32_top_temp/NM32_top_temp.gen/sources_1/bd/temp_top
+synth_design -rtl -rtl_skip_mlo -name rtl_1
+Command: synth_design -rtl -rtl_skip_mlo -name rtl_1
+Starting synth_design
+Using part: xc7z010iclg225-1L
+Top: ef_util_clkmux_4x1
+INFO: [Device 21-403] Loading part xc7z010iclg225-1L
+INFO: [Synth 8-11241] undeclared symbol 'REGCCE', assumed default net type 'wire' [/tools/Xilinx/Vivado/2022.2/data/verilog/src/unimacro/BRAM_SINGLE_MACRO.v:2170]
+---------------------------------------------------------------------------------
+Starting RTL Elaboration : Time (s): cpu = 00:00:02 ; elapsed = 00:00:02 . Memory (MB): peak = 7364.828 ; gain = 340.828 ; free physical = 5463 ; free virtual = 10763
+---------------------------------------------------------------------------------
+INFO: [Synth 8-6157] synthesizing module 'ef_util_clkmux_4x1' [/home/omkar/SoC_0.1/I2S/EF_IP_UTIL/hdl/ef_util_lib.v:327]
+INFO: [Synth 8-6157] synthesizing module 'ef_util_clkmux_2x1' [/home/omkar/SoC_0.1/I2S/EF_IP_UTIL/hdl/ef_util_lib.v:278]
+INFO: [Synth 8-6155] done synthesizing module 'ef_util_clkmux_2x1' (0#1) [/home/omkar/SoC_0.1/I2S/EF_IP_UTIL/hdl/ef_util_lib.v:278]
+INFO: [Synth 8-6155] done synthesizing module 'ef_util_clkmux_4x1' (0#1) [/home/omkar/SoC_0.1/I2S/EF_IP_UTIL/hdl/ef_util_lib.v:327]
+---------------------------------------------------------------------------------
+Finished RTL Elaboration : Time (s): cpu = 00:00:03 ; elapsed = 00:00:03 . Memory (MB): peak = 7432.797 ; gain = 408.797 ; free physical = 5470 ; free virtual = 10773
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Start Handling Custom Attributes
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Finished Handling Custom Attributes : Time (s): cpu = 00:00:03 ; elapsed = 00:00:03 . Memory (MB): peak = 7450.609 ; gain = 426.609 ; free physical = 5470 ; free virtual = 10773
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+Finished RTL Optimization Phase 1 : Time (s): cpu = 00:00:03 ; elapsed = 00:00:03 . Memory (MB): peak = 7450.609 ; gain = 426.609 ; free physical = 5470 ; free virtual = 10773
+---------------------------------------------------------------------------------
+Netlist sorting complete. Time (s): cpu = 00:00:00 ; elapsed = 00:00:00 . Memory (MB): peak = 7450.609 ; gain = 0.000 ; free physical = 5470 ; free virtual = 10773
+INFO: [Project 1-570] Preparing netlist for logic optimization
+
+Processing XDC Constraints
+Initializing timing engine
+Completed Processing XDC Constraints
+
+Netlist sorting complete. Time (s): cpu = 00:00:00 ; elapsed = 00:00:00 . Memory (MB): peak = 7575.355 ; gain = 0.000 ; free physical = 5455 ; free virtual = 10770
+INFO: [Project 1-111] Unisim Transformation Summary:
+No Unisim elements were transformed.
+
+RTL Elaboration Complete:  : Time (s): cpu = 00:00:10 ; elapsed = 00:00:05 . Memory (MB): peak = 7657.953 ; gain = 633.953 ; free physical = 5303 ; free virtual = 10622
+8 Infos, 0 Warnings, 0 Critical Warnings and 0 Errors encountered.
+synth_design completed successfully
+synth_design: Time (s): cpu = 00:00:11 ; elapsed = 00:00:06 . Memory (MB): peak = 7657.953 ; gain = 708.680 ; free physical = 5303 ; free virtual = 10622
+exit
+INFO: [Common 17-206] Exiting Vivado at Mon May 18 23:44:08 2026...

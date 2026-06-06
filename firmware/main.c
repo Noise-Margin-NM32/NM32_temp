@@ -9,20 +9,38 @@
 // We pick an arbitrary offset in SRAM (0x0100) to store our test word
 #define SRAM_TEST_ADDR (*((volatile uint32_t*)(SRAM_BASE + 0x0100)))
 
-// Standard Efabless IP register offsets (Data = 0x00, Control = 0x04)
-#define I2S_RX_DATA    (*((volatile uint32_t*)(I2S_RX_BASE + 0x00)))
-#define I2S_RX_CTRL    (*((volatile uint32_t*)(I2S_RX_BASE + 0x01)))
+// Standard Efabless IP register offsets
+#define I2S_RX_DATA    (*((volatile uint32_t*)(I2S_RX_BASE + 0x00))) // offset 0x00
+#define I2S_RX_PR      (*((volatile uint32_t*)(I2S_RX_BASE + 0x04))) // offset 0x04
+#define I2S_RX_CTRL    (*((volatile uint32_t*)(I2S_RX_BASE + 0x10))) // offset 0x10
+#define I2S_RX_CFG     (*((volatile uint32_t*)(I2S_RX_BASE + 0x14))) // offset 0x14
+#define I2S_RX_GCLK    (*((volatile uint32_t*)(I2S_RX_BASE + 0xFF10))) // offset 0xFF10
 
-#define I2S_TX_DATA    (*((volatile uint32_t*)(I2S_TX_BASE + 0x00)))
-#define I2S_TX_CTRL    (*((volatile uint32_t*)(I2S_TX_BASE + 0x01)))
+#define I2S_TX_DATA    (*((volatile uint32_t*)(I2S_TX_BASE + 0x00))) // offset 0x00
+#define I2S_TX_PR      (*((volatile uint32_t*)(I2S_TX_BASE + 0x04))) // offset 0x04
+#define I2S_TX_CTRL    (*((volatile uint32_t*)(I2S_TX_BASE + 0x10))) // offset 0x10
+#define I2S_TX_CFG     (*((volatile uint32_t*)(I2S_TX_BASE + 0x14))) // offset 0x14
+#define I2S_TX_GCLK    (*((volatile uint32_t*)(I2S_TX_BASE + 0xFF10))) // offset 0xFF10
 
 int main() {
     uint32_t test_word = 0xDEADBEEF;
     uint32_t received_word = 0;
 
-    // Turn on the I2S IP cores
-    I2S_RX_CTRL = 1;
-    I2S_TX_CTRL = 1;
+    // 1. Un-gate clocks
+    I2S_RX_GCLK = 1;
+    I2S_TX_GCLK = 1;
+
+    // 2. Set prescalers (divider of 20)
+    I2S_RX_PR = 20;
+    I2S_TX_PR = 20;
+
+    // 3. Configure audio formats (32-bit, Right channel, standard I2S)
+    I2S_RX_CFG = 0x203;
+    I2S_TX_CFG = 0x203;
+
+    // 4. Enable both IP cores (en=1, fifo_en=1)
+    I2S_RX_CTRL = 3;
+    I2S_TX_CTRL = 3;
 
     // ---------------------------------------------------------
     // PHASE 1: SRAM TEST
@@ -61,9 +79,11 @@ int main() {
     // Trap the CPU to verify success
     if (received_word == 0xDEADBEEF) {
         // SUCCESS: The chip works perfectly!
+        *((volatile uint32_t*)(SRAM_BASE + 0x0104)) = 0x55555555;
         while(1); 
     } else {
         // FAIL: Something went wrong in the transfer.
+        *((volatile uint32_t*)(SRAM_BASE + 0x0104)) = 0xFA11FA11;
         while(1);
     }
 

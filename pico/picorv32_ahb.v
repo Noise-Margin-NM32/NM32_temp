@@ -160,7 +160,7 @@ module pico_to_ahb (
             
             case (state)
                 IDLE: begin
-                    if (mem_valid) begin
+                    if (mem_valid && !mem_ready) begin
                         mst_hbusreq <= 1'b1; 
                         
                         if (mst_hgrant && mst_hready_out) begin
@@ -168,6 +168,9 @@ module pico_to_ahb (
                             mst_haddr  <= mem_addr;
                             mst_hwrite <= (mem_wstrb != 4'b0000); 
                             mst_hsize  <= next_hsize;
+                            if (mem_wstrb != 4'b0000) begin
+                                mst_hwdata <= mem_wdata;
+                            end
                             state      <= ADDR;
                         end
                     end else begin

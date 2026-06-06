@@ -25,8 +25,8 @@ module nm32_top(
     input wire clk,
     input wire pclk, // For APB peripherals
     input wire rstn,
-    output wire [1-1:0] rx_ws,
-    output wire [1-1:0] rx_sck,
+    input wire [1-1:0] rx_ws,
+    input wire [1-1:0] rx_sck,
     output wire [1-1:0] tx_ws,
     output wire [1-1:0] tx_sck,
     input wire [1-1:0] sdi,
@@ -487,6 +487,7 @@ EF_I2S_APB #(.AW(i2s_AW), .DW(i2s_DW)) i2s_apb (
 );
 
 EF_I2S_TX_APB #(.AW(i2s_AW), .DW(i2s_DW)) i2s_tx_apb (
+    .sc_testmode(1'b0),
     .PCLK(pclk),
     .PRESETn(rstn),
     .PWRITE(i2s_tx_PWRITE),

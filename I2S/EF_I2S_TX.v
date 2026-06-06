@@ -147,22 +147,20 @@ module EF_I2S_TX #(
                         // For now, 2'b11 means normal continuous stereo-like slots.
                         // Other values still transmit available FIFO samples.
                         if (fifo_en && !fifo_empty) begin
-                            fifo_rd_int <= 1'b1;
-                            state       <= ST_READ;
+                            fifo_rd_int  <= 1'b1;
+                            shift_sample <= fifo_rdata;
+                            bit_index    <= safe_sample_size - 1'b1;
+                            delay_bit    <= ~left_justified;
+                            state        <= ST_SHIFT;
                         end
                     end
 
                     ST_READ: begin
-                        // One cycle after asserting fifo_rd_int.
-                        // FIFO updates rdata on this clock edge.
-                        state <= ST_LOAD;
+                        state <= ST_SHIFT;
                     end
 
                     ST_LOAD: begin
-                        shift_sample <= fifo_rdata;
-                        bit_index    <= safe_sample_size - 1'b1;
-                        delay_bit    <= ~left_justified;
-                        state        <= ST_SHIFT;
+                        state <= ST_SHIFT;
                     end
 
                     ST_SHIFT: begin

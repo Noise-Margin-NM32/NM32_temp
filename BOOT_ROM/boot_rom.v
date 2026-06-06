@@ -19,38 +19,10 @@ module boot_rom_ahb (
 
     // This is where the magic happens! The simulator loads your compiled code here.
     initial begin
-        $readmemh("/home/omkar/SoC_0.1/firmware/firmware.hex", memory);
+        $readmemh("/home/r_sarang/NM32_SoC/firmware/firmware.hex", memory);
     end
 
-    // --- AHB Address Phase ---
-    reg read_en;
-    //reg [31:0] latched_addr;
-
-    always @(posedge HCLK or negedge HRESETn) begin
-        if (!HRESETn) begin
-            read_en      <= 1'b0;
-            latched_addr <= 32'b0;
-        end else if (HREADY && HSEL && (HTRANS == 2'b10 || HTRANS == 2'b11) && !HWRITE) begin
-            // A valid read request was sent to the ROM
-            read_en      <= 1'b1;
-            latched_addr <= HADDR;
-        end else if (HREADY) begin
-            read_en      <= 1'b0;
-        end
-    end
-
-    // // --- AHB Data Phase ---
-    // always @(posedge HCLK) begin
-    //     if (read_en) begin
-    //         // Shift the address down by 2 (divide by 4) to convert byte-address to word-index
-    //         HRDATA <= memory[latched_addr[11:2]];
-    //     end
-    // end
-
-    // // --- AHB Data Phase (Combinational) ---
-    // // The moment latched_addr updates on the clock edge, the memory array 
-    // // is instantly indexed, guaranteeing HRDATA is valid for the CPU to read!
-    // assign HRDATA = read_en ? memory[latched_addr[11:2]] : 32'h00000000;
+    // --- AHB Address Phase (Cleaned up, unused code removed) ---
 
     // --- AHB Address Latch ---
     reg [31:0] latched_addr;

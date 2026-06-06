@@ -96,8 +96,8 @@ module EF_I2S #(parameter DW=32, AW=4) (
     input   wire            clk,
     input   wire            rst_n,
 
-    output  wire            ws,
-    output  wire            sck,
+    input   wire            ws,
+    input   wire            sck,
     input   wire            sdi,
     //output  wire        sdo,
 
@@ -138,8 +138,8 @@ module EF_I2S #(parameter DW=32, AW=4) (
 
     wire        sample_rdy;
 
-    assign      sck = sck_reg;
-    assign      ws = ws_reg;
+    // assign      sck = sck_reg;
+    // assign      ws = ws_reg;
 
     //wire [31:0] rsample, lsample;
 

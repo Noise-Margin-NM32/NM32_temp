@@ -60,7 +60,7 @@ logic [ADDR_WIDTH - 1 : 0] ADDR_REG, DATA_REG;
 /////////////////////////////////////////////////////////////////////////////////////////
 always_comb begin : VALID_LOGIC
     
-    if(h_sel_apb == 1'b1 && (h_trans == 2'b01 || h_trans == 2'b11)) begin
+    if(h_sel_apb == 1'b1 && (h_trans == 2'b10 || h_trans == 2'b11)) begin
         
         valid = 1'b1;
 
@@ -218,118 +218,116 @@ end
 /////////////////////////////////////////////////////////////////////////////////////////
 // -----------------------        Synchronous Output Logic        -----------------------
 /////////////////////////////////////////////////////////////////////////////////////////
-always_ff @( posedge h_clk or negedge h_reset_n ) begin : Output_Logic
-    
+always_ff @( posedge h_clk or negedge h_reset_n ) begin : Sequential_Latching
     if (!h_reset_n) begin
-
-        h_resp      <= 'b0;
-        h_ready_out <= 'b0;
-        p_enable    <= 'b0;
-        p_write     <= 'b0;
-        p_selx      <= 'b0;
-        p_wdata     <= 'b0;
-        p_addr      <= 'b0;
-        h_rdata     <= 'b0;  
-
-
         ADDR_REG    <= 'b0;
         h_write_Reg <= 1'b0;
-
     end else begin
-
         case (current_state)
-
-            IDLE     : begin
-
-                p_selx      <= 1'b0;
-                p_enable    <= 1'b0;
-                h_ready_out <= 1'b1;
-
-            end
-
-            READ     : begin
-
-                p_addr      <= h_addr;
-                p_selx      <= 1'b1;
-                p_write     <= 1'b0;
-                p_enable    <= 1'b0;
-                h_ready_out <= 1'b0;
-
-            end
-            
             W_WAIT   : begin
-
                 ADDR_REG    <= h_addr;
                 h_write_Reg <= h_write;
-                p_enable    <= 1'b0;
-                p_enable    <= 1'b0;
-                h_ready_out <= 1'b0;
-
-            end
-            
-            WRITE    : begin
-
-                p_addr      <= ADDR_REG;
-                p_wdata     <= h_wdata;
-                p_selx      <= 1'b1;
-                p_write     <= 1'b1;
-                p_enable    <= 1'b0;
-                h_ready_out <= 1'b0;
-
             end
             
             WRITEP   : begin
-
-                p_addr      <= ADDR_REG;
-                p_wdata     <= h_wdata;
                 ADDR_REG    <= h_addr;
                 h_write_Reg <= h_write;
-                p_selx      <= 1'b1;
-                p_write     <= 1'b1;
-                p_enable    <= 1'b0;
-                h_ready_out <= 1'b0;
-
             end
             
-            WENABLE  : begin
-
-                p_enable    <= 1'b1;
-                h_ready_out <= 1'b1;
-                
+            READ     : begin
+                ADDR_REG    <= h_addr;
+                h_write_Reg <= 1'b0;
             end
-            
-            WENABLEP : begin
-
-                p_enable    <= 1'b1;
-                h_ready_out <= 1'b1; 
-
-            end
-            
-            RENABLE  : begin
-
-                p_enable    <= 1'b1;
-                h_ready_out <= 1'b1;
-                h_rdata     <= p_rdata;
-                
-            end 
-            
-            default: begin
-                
-                    h_resp      <= 'b0;
-                    h_ready_out <= 'b0;
-                    p_enable    <= 'b0;
-                    p_write     <= 'b0;
-                    p_selx      <= 'b0;
-                    p_wdata     <= 'b0;
-                    p_addr      <= 'b0;
-                    h_rdata     <= 'b0;  
-
-            end
-
         endcase
     end
+end
 
+always_comb begin : Combinational_Outputs
+    h_resp      = 1'b0;
+    h_ready_out = 1'b1;
+    p_enable    = 1'b0;
+    p_write     = 1'b0;
+    p_selx      = 1'b0;
+    p_wdata     = 32'b0;
+    p_addr      = 32'b0;
+
+    case (current_state)
+        IDLE     : begin
+            p_selx      = 1'b0;
+            p_enable    = 1'b0;
+            h_ready_out = 1'b1;
+        end
+
+        READ     : begin
+            p_addr      = ADDR_REG;
+            p_selx      = 1'b1;
+            p_write     = 1'b0;
+            p_enable    = 1'b0;
+            h_ready_out = 1'b0;
+        end
+        
+        W_WAIT   : begin
+            p_enable    = 1'b0;
+            h_ready_out = 1'b0;
+        end
+        
+        WRITE    : begin
+            p_addr      = ADDR_REG;
+            p_wdata     = h_wdata;
+            p_selx      = 1'b1;
+            p_write     = 1'b1;
+            p_enable    = 1'b0;
+            h_ready_out = 1'b0;
+        end
+        
+        WRITEP   : begin
+            p_addr      = ADDR_REG;
+            p_wdata     = h_wdata;
+            p_selx      = 1'b1;
+            p_write     = 1'b1;
+            p_enable    = 1'b0;
+            h_ready_out = 1'b0;
+        end
+        
+        WENABLE  : begin
+            p_addr      = ADDR_REG;
+            p_wdata     = h_wdata;
+            p_selx      = 1'b1;
+            p_write     = 1'b1;
+            p_enable    = 1'b1;
+            h_ready_out = 1'b1;
+        end
+        
+        WENABLEP : begin
+            p_addr      = ADDR_REG;
+            p_wdata     = h_wdata;
+            p_selx      = 1'b1;
+            p_write     = 1'b1;
+            p_enable    = 1'b1;
+            h_ready_out = 1'b1; 
+        end
+        
+        RENABLE : begin
+            p_addr      = ADDR_REG;
+            p_selx      = 1'b1;
+            p_write     = 1'b0;
+            p_enable    = 1'b1;
+            h_ready_out = 1'b1; 
+        end
+        
+        default: begin
+            h_resp      = 1'b0;
+            h_ready_out = 1'b0;
+            p_enable    = 1'b0;
+            p_write     = 1'b0;
+            p_selx      = 1'b0;
+            p_wdata     = 32'b0;
+            p_addr      = 32'b0;
+        end
+    endcase
 end
     
+    assign h_rdata = p_rdata;
+
 endmodule
 

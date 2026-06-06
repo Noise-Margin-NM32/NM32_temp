@@ -37,8 +37,8 @@ module EF_I2S_APB #(
     output wire         PREADY,
     output wire [ 31:0] PRDATA,
     output wire         IRQ,
-    output wire [1-1:0] ws,
-    output wire [1-1:0] sck,
+    input  wire [1-1:0] ws,
+    input  wire [1-1:0] sck,
     input  wire [1-1:0] sdi
 );
 

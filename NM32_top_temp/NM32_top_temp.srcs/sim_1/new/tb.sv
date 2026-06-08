@@ -19,11 +19,42 @@ module tb;
     wire [1-1:0] tx_sck;
     wire [1-1:0] sdo;
 
-    // The Physical Wire Loopback: 
-    // TX drives the wires, RX listens to them.
     assign rx_ws  = tx_ws;
     assign rx_sck = tx_sck;
-    assign sdi    = sdo;
+
+    reg [31:0] audio_in_mem [0:2047];
+    integer sample_idx = 0;
+    integer bit_idx = 31;
+    reg sdi_reg = 0;
+    assign sdi = sdi_reg;
+
+    initial begin
+        $readmemh("/home/r_sarang/NM32_SoC/audio_in.txt", audio_in_mem);
+    end
+
+    // Robust Synchronous I2S Serializer
+    reg last_ws_reg = 1'b1;
+    reg [31:0] shift_reg = 32'h0;
+    
+    always @(negedge rx_sck) begin
+        last_ws_reg <= rx_ws;
+        
+        if (last_ws_reg == 1'b1 && rx_ws == 1'b0) begin
+            // Detect falling edge of ws -> load new sample
+            shift_reg <= audio_in_mem[sample_idx];
+            $display("Time=%0t: [SERIALIZER] Loaded sample_idx=%d, val=0x%08h", $time, sample_idx, audio_in_mem[sample_idx]);
+            if (sample_idx < 2047) begin
+                sample_idx <= sample_idx + 1;
+            end
+            sdi_reg <= 1'b0; // 1-cycle standard delay
+        end else if (rx_ws == 1'b0) begin
+            // Shift out MSB
+            sdi_reg <= shift_reg[31];
+            shift_reg <= {shift_reg[30:0], 1'b0};
+        end else begin
+            sdi_reg <= 1'b0;
+        end
+    end
 
     // ---------------------------------------------------------
     // 3. Device Under Test (DUT) Instantiation
@@ -70,7 +101,7 @@ module tb;
         // This command forces Vivado to stop after 1 millisecond.
         // (1 ms is plenty of time for a 100MHz CPU to run the test)
         // --- SAFETY TIMEOUT ---
-        #500000; // 500us (50,000 cycles at 100MHz)
+        #48000000; // 48.0ms (4,800,000 cycles at 100MHz)
         
         $display("--------------------------------------------------");
         $display(" Simulation reached timeout and finished safely.");
@@ -79,20 +110,28 @@ module tb;
         $finish;
     end
 
+
     // ---------------------------------------------------------
-    // 6. CPU Instruction & Memory Tracer (Commented out for clean simulation logs)
+    // 6. CPU Instruction & Memory Tracer
     // ---------------------------------------------------------
-    /*
+    // ---------------------------------------------------------
+    // 6. CPU Instruction & Memory Tracer
+    // ---------------------------------------------------------
     always @(posedge clk) begin
         if (dut.cpu_mem_valid && dut.cpu_mem_ready) begin
             if (dut.cpu_mem_wstrb != 4'b0000) begin
-                $display("Time=%0t: [CPU WRITE] Addr=0x%08h, Data=0x%08h, Wstrb=%b", $time, dut.cpu_mem_addr, dut.cpu_mem_wdata, dut.cpu_mem_wstrb);
+                if (dut.cpu_mem_addr[31:28] == 4'h2 || dut.cpu_mem_addr[31:28] == 4'h3 || dut.cpu_mem_addr[31:28] == 4'h4 || dut.cpu_mem_addr[31:28] == 4'h6) begin
+                    if (dut.cpu_mem_addr == 32'h20000000 && dut.cpu_mem_wstrb == 4'b0000) $display("Time=%0t: [CPU READ] I2S_RX_DATA = 0x%08h", $time, dut.cpu_mem_rdata);
+                    $display("Time=%0t: [CPU WRITE] Addr=0x%08h, Data=0x%08h, Wstrb=%b", $time, dut.cpu_mem_addr, dut.cpu_mem_wdata, dut.cpu_mem_wstrb);
+                end
             end else begin
-                $display("Time=%0t: [CPU READ ] Addr=0x%08h, Data=0x%08h", $time, dut.cpu_mem_addr, dut.cpu_mem_rdata);
+                if (dut.cpu_mem_addr[31:28] == 4'h2 || dut.cpu_mem_addr[31:28] == 4'h3 || dut.cpu_mem_addr[31:28] == 4'h4 || dut.cpu_mem_addr[31:28] == 4'h6) begin
+                    if (dut.cpu_mem_addr == 32'h20000000 && dut.cpu_mem_wstrb == 4'b0000) $display("Time=%0t: [CPU READ] I2S_RX_DATA = 0x%08h", $time, dut.cpu_mem_rdata);
+                    $display("Time=%0t: [CPU READ ] Addr=0x%08h, Data=0x%08h", $time, dut.cpu_mem_addr, dut.cpu_mem_rdata);
+                end
             end
         end
     end
-
     // I2S Tracer
     always @(posedge clk) begin
         if (dut.i2s_tx_apb.instance_to_wrap.fifo_wr) begin
@@ -149,24 +188,42 @@ module tb;
             cycle_count = cycle_count + 1;
         end
     end
-    */
 
     // ---------------------------------------------------------
-    // 7. Auto-Verification and Finish Logic
+    // 7. Auto-Verification and Frame Dumping Logic
     // ---------------------------------------------------------
+    integer outfile_fft;
+    integer outfile_ifft;
+    integer f_idx;
+    initial begin
+        outfile_fft = $fopen("/home/r_sarang/NM32_SoC/fft_out.txt", "w");
+        outfile_ifft = $fopen("/home/r_sarang/NM32_SoC/ifft_out.txt", "w");
+    end
+
     always @(posedge clk) begin
         if (dut.sram0.SRAM_0.EN && ~dut.sram0.SRAM_0.R_WB) begin
-            if (dut.sram0.SRAM_0.AD == 10'd65 && dut.sram0.SRAM_0.DI == 32'h55555555) begin
-                $display("--------------------------------------------------");
-                $display(" >>> SUCCESS: SRAM test and I2S loopback PASSED! <<<");
-                $display("--------------------------------------------------");
-                $finish;
-            end
-            if (dut.sram0.SRAM_0.AD == 10'd65 && dut.sram0.SRAM_0.DI == 32'hFA11FA11) begin
-                $display("--------------------------------------------------");
-                $display(" >>> FAILURE: I2S loopback FAILED! <<<");
-                $display("--------------------------------------------------");
-                $finish;
+            if (dut.sram0.SRAM_0.AD == 10'd65) begin
+                if (dut.sram0.SRAM_0.DI == 32'h11111111 || 
+                    dut.sram0.SRAM_0.DI == 32'h22222222 || 
+                    dut.sram0.SRAM_0.DI == 32'h33333333 || 
+                    dut.sram0.SRAM_0.DI == 32'h55555555) begin
+                    
+                    $display("Time=%0t: [TESTBENCH] Handshake 0x%08h detected. Dumping current FFT frame to fft_out.txt and IFFT frame to ifft_out.txt...", $time, dut.sram0.SRAM_0.DI);
+                    
+                    for (f_idx = 0; f_idx < 512; f_idx = f_idx + 1) begin
+                        // Dump FFT outputs directly from the FFT engine's internal data RAM
+                        $fdisplay(outfile_fft, "%08X", dut.fft_wrapper_inst.fft_engine.data_ram.ram[f_idx]);
+                        // Dump IFFT outputs (stored at SRAM offset 0-511)
+                        $fdisplay(outfile_ifft, "%08X", dut.sram0.SRAM_0.mem[f_idx]);
+                    end
+                    
+                    if (dut.sram0.SRAM_0.DI == 32'h55555555) begin
+                        $display("Time=%0t: [TESTBENCH] Frame 4 completed. Verification simulation successful!", $time);
+                        $fclose(outfile_fft);
+                        $fclose(outfile_ifft);
+                        $finish;
+                    end
+                end
             end
         end
     end

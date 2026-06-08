@@ -1,6 +1,6 @@
 `timescale 1ns / 1ps
 
-module nm32_fft_top (
+module nm32_ifft_top (
     input wire clk,
     input wire rst,
     input wire start,
@@ -27,7 +27,7 @@ module nm32_fft_top (
     wire [31:0] ram_din_a = (state == 0) ? ext_din : ram_din_a_reg;
     wire ram_we_a = (state == 0) ? ext_we : ram_we_a_reg;
 
-    fft_data_ram data_ram (
+    ifft_data_ram data_ram (
         .clk(clk),
         .we_a(ram_we_a), .addr_a(ram_addr_a), .din_a(ram_din_a), .dout_a(ram_dout_a),
         .we_b(ram_we_b), .addr_b(ram_addr_b), .din_b(ram_din_b), .dout_b(ram_dout_b)
@@ -62,7 +62,7 @@ module nm32_fft_top (
     reg signed [15:0] bf_A_re, bf_A_im, bf_B_re, bf_B_im, bf_W_re, bf_W_im;
     wire signed [15:0] bf_X_re, bf_X_im, bf_Y_re, bf_Y_im;
 
-    butterfly_folded math_engine (
+    ifft_butterfly_folded math_engine (
         .clk(clk),
         .rst(rst),
         .start(bf_start),
@@ -123,11 +123,6 @@ module nm32_fft_top (
                     bf_W_re <= tw_re; bf_W_im <= tw_im;
                     bf_start <= 1;
                     state <= 4;
-                    $display("Time=%0t: [FFT DEBUG] s=%d, k=%d, j=%d | A=(%d,%d) B=(%d,%d) W=(%d,%d)", 
-                        $time, s, k, j, 
-                        $signed(ram_dout_a[31:16]), $signed(ram_dout_a[15:0]),
-                        $signed(ram_dout_b[31:16]), $signed(ram_dout_b[15:0]),
-                        $signed(tw_re), $signed(tw_im));
                 end
                 
                 4: begin
@@ -137,8 +132,6 @@ module nm32_fft_top (
                         ram_din_b <= {bf_Y_re, bf_Y_im};
                         ram_we_a_reg <= 1; ram_we_b <= 1;
                         state <= 5;
-                        $display("Time=%0t: [FFT DEBUG] bf_done | X=(%d,%d) Y=(%d,%d)", 
-                            $time, $signed(bf_X_re), $signed(bf_X_im), $signed(bf_Y_re), $signed(bf_Y_im));
                     end
                 end
                 
@@ -181,4 +174,5 @@ module nm32_fft_top (
             endcase
         end
     end
+
 endmodule

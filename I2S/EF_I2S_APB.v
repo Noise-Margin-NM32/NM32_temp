@@ -259,7 +259,7 @@ module EF_I2S_APB #(
       .en(en),
       .ws(ws),
       .sck(sck),
-      .sdi(_sdi_w_)
+      .sdi(sdi)
   );
 
   assign	PRDATA = 

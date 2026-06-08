@@ -1,6 +1,6 @@
 `timescale 1ns / 1ps
 
-module butterfly_folded (
+module ifft_butterfly_folded (
     input wire clk,
     input wire rst,
     input wire start,

@@ -37,7 +37,7 @@ module nm32_top(
 /////////////////////////////////           Wires and Parameters           ////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-localparam NUM_SLVS = 3;
+localparam NUM_SLVS = 6;
 localparam TRAN_WIDTH = 2;
 localparam DATA_WIDTH = 32;
 
@@ -253,7 +253,89 @@ assign boot_rom_HTRANS = slv_htrans_out;
 assign boot_rom_HWRITE = slv_hwrite_out;
 assign boot_rom_HREADY = slv_hready_in; // Assuming shared hready for all
 
+// Slave 3: FFT Wrapper connections
+wire        fft_HSEL;
+wire [31:0] fft_HADDR;
+wire [1:0]  fft_HTRANS;
+wire        fft_HWRITE;
+wire [2:0]  fft_HSIZE;
+wire [2:0]  fft_HBURST;
+wire [31:0] fft_HWDATA;
+wire [3:0]  fft_HPROT;
+wire        fft_HREADY;
+wire [3:0]  fft_HMASTER;
+wire        fft_HMASTLOCK;
+wire        fft_HREADYOUT;
+wire [1:0]  fft_HRESP;
+wire [31:0] fft_HRDATA;
+wire [15:0] fft_HSPLIT;
+wire        fft_irq;
 
+assign fft_HSEL      = slv_hsel[3];
+assign fft_HADDR     = slv_haddr_out;
+assign fft_HTRANS    = slv_htrans_out;
+assign fft_HWRITE    = slv_hwrite_out;
+assign fft_HSIZE     = slv_hsize_out;
+assign fft_HBURST    = slv_hburst_out;
+assign fft_HWDATA    = slv_hwdata_out;
+assign fft_HPROT     = slv_hprot_out;
+assign fft_HREADY    = slv_hready_in;
+assign fft_HMASTER   = slv_hmaster_out;
+assign fft_HMASTLOCK = slv_hmastlock_out;
+
+// Slave 4: Scratchpad RAM connections
+wire        scratch_HSEL;
+wire [31:0] scratch_HADDR;
+wire [1:0]  scratch_HTRANS;
+wire        scratch_HWRITE;
+wire [2:0]  scratch_HSIZE;
+wire [2:0]  scratch_HBURST;
+wire [31:0] scratch_HWDATA;
+wire [3:0]  scratch_HPROT;
+wire        scratch_HREADY;
+wire        scratch_HREADYOUT;
+wire [1:0]  scratch_HRESP;
+wire [31:0] scratch_HRDATA;
+
+assign scratch_HSEL   = slv_hsel[4];
+assign scratch_HADDR  = slv_haddr_out;
+assign scratch_HTRANS = slv_htrans_out;
+assign scratch_HWRITE = slv_hwrite_out;
+assign scratch_HSIZE  = slv_hsize_out;
+assign scratch_HBURST = slv_hburst_out;
+assign scratch_HWDATA = slv_hwdata_out;
+assign scratch_HPROT  = slv_hprot_out;
+assign scratch_HREADY = slv_hready_in;
+
+// Slave 5: IFFT Wrapper connections
+wire        ifft_HSEL;
+wire [31:0] ifft_HADDR;
+wire [1:0]  ifft_HTRANS;
+wire        ifft_HWRITE;
+wire [2:0]  ifft_HSIZE;
+wire [2:0]  ifft_HBURST;
+wire [31:0] ifft_HWDATA;
+wire [3:0]  ifft_HPROT;
+wire        ifft_HREADY;
+wire [3:0]  ifft_HMASTER;
+wire        ifft_HMASTLOCK;
+wire        ifft_HREADYOUT;
+wire [1:0]  ifft_HRESP;
+wire [31:0] ifft_HRDATA;
+wire [15:0] ifft_HSPLIT;
+wire        ifft_irq;
+
+assign ifft_HSEL      = slv_hsel[5];
+assign ifft_HADDR     = slv_haddr_out;
+assign ifft_HTRANS    = slv_htrans_out;
+assign ifft_HWRITE    = slv_hwrite_out;
+assign ifft_HSIZE     = slv_hsize_out;
+assign ifft_HBURST    = slv_hburst_out;
+assign ifft_HWDATA    = slv_hwdata_out;
+assign ifft_HPROT     = slv_hprot_out;
+assign ifft_HREADY    = slv_hready_in;
+assign ifft_HMASTER   = slv_hmaster_out;
+assign ifft_HMASTLOCK = slv_hmastlock_out;
 assign i2s_PWRITE = bridge_p_write; // From bridge to APB slave
 assign i2s_PWDATA = bridge_p_wdata; // From bridge to APB slave
 assign i2s_PADDR = bridge_p_addr;   // From bridge to APB slave
@@ -301,9 +383,24 @@ assign slv_hresp_v[2] = boot_rom_HRESP; // From boot ROM
 assign slv_hready_in_v[2] = boot_rom_HREADYOUT; // From boot ROM
 assign slv_hsplit_v[2] = 0; // No splits for
 
+assign slv_hrdata_v[3] = fft_HRDATA; // To arbiter (only from slave 3)
+assign slv_hresp_v[3] = fft_HRESP;
+assign slv_hready_in_v[3] = fft_HREADYOUT;
+assign slv_hsplit_v[3] = fft_HSPLIT;
+
+assign slv_hrdata_v[4] = scratch_HRDATA; // To arbiter (only from slave 4)
+assign slv_hresp_v[4] = scratch_HRESP;
+assign slv_hready_in_v[4] = scratch_HREADYOUT;
+assign slv_hsplit_v[4] = 16'b0;
+
+assign slv_hrdata_v[5] = ifft_HRDATA; // To arbiter (only from slave 5)
+assign slv_hresp_v[5] = ifft_HRESP;
+assign slv_hready_in_v[5] = ifft_HREADYOUT;
+assign slv_hsplit_v[5] = ifft_HSPLIT;
+
 generate
    genvar j;
-    for(j = 3; j<15; j = j+1) begin
+    for(j = 6; j<15; j = j+1) begin
         assign slv_hrdata_v[j] = 0;
         assign slv_hresp_v[j] = 0;
         // assign slv_hready_in_v[j] = 0;
@@ -346,8 +443,8 @@ ahb_arbiter #(
     .DEF_ARB_MST(0),
     .NUM_SLVS(NUM_SLVS),
     .ALG_NUMBER(1),            //Round Robin
-    .ADDR_LOW_FLAT({416'b0, 32'h00000000, 32'h3000_0000, 32'h2000_0000}), // Base address of slave 1, 0
-    .ADDR_HIGH_FLAT({416'b0, 32'h0000FFFF,32'h3000_FFFF, 32'h200F_FFFF})
+    .ADDR_LOW_FLAT({320'b0, 32'h6000_0000, 32'h5000_0000, 32'h4000_0000, 32'h0000_0000, 32'h3000_0000, 32'h2000_0000}),
+    .ADDR_HIGH_FLAT({320'b0, 32'h6000_0FFF, 32'h5000_3FFF, 32'h4000_0FFF, 32'h0000_FFFF, 32'h3000_FFFF, 32'h200F_FFFF})
 ) 
 arbiter  
 (
@@ -514,6 +611,86 @@ boot_rom_ahb boot_rom (
     .HREADYOUT(boot_rom_HREADYOUT),
     .HRDATA(boot_rom_HRDATA),
     .HRESP(boot_rom_HRESP)
+);
+
+// Slave 3: FFT Accelerator Wrapper
+nm32_fft_ahb_wrapper #(
+    .BASE_ADDR(32'h4000_0000),
+    .ADDR_MASK(32'h0000_0FFF)
+) fft_wrapper_inst (
+    .hclk(clk),
+    .hresetn(rstn),
+    
+    .slv_hsel(fft_HSEL),
+    .slv_haddr(fft_HADDR),
+    .slv_hwrite(fft_HWRITE),
+    .slv_htrans(fft_HTRANS),
+    .slv_hsize(fft_HSIZE),
+    .slv_hburst(fft_HBURST),
+    .slv_hwdata(fft_HWDATA),
+    .slv_hprot(fft_HPROT),
+    .slv_hready(fft_HREADY),
+    .slv_hmaster(fft_HMASTER),
+    .slv_hmastlock(fft_HMASTLOCK),
+    
+    .slv_hready_out(fft_HREADYOUT),
+    .slv_hresp(fft_HRESP),
+    .slv_hrdata(fft_HRDATA),
+    .slv_hsplit(fft_HSPLIT),
+    .slv_err(),
+    
+    .fft_irq(fft_irq)
+);
+
+// Slave 4: Custom Scratchpad RAM (16KB)
+ahb_sram #(
+    .AHB_MAX_ADDR(12) // 16KB SRAM
+) scratchpad_sram (
+    .hclk(clk),
+    .hresetn(rstn),
+    
+    .hsel(scratch_HSEL),
+    .haddr(scratch_HADDR),
+    .hwrite(scratch_HWRITE),
+    .htrans(scratch_HTRANS),
+    .hsize(scratch_HSIZE),
+    .hburst(scratch_HBURST),
+    .hwdata(scratch_HWDATA),
+    .hprot(scratch_HPROT),
+    .hready_in(scratch_HREADY),
+    
+    .hready_out(scratch_HREADYOUT),
+    .hresp(scratch_HRESP),
+    .hrdata(scratch_HRDATA)
+);
+
+// Slave 5: IFFT Accelerator Wrapper
+nm32_ifft_ahb_wrapper #(
+    .BASE_ADDR(32'h6000_0000),
+    .ADDR_MASK(32'h0000_0FFF)
+) ifft_wrapper_inst (
+    .hclk(clk),
+    .hresetn(rstn),
+    
+    .slv_hsel(ifft_HSEL),
+    .slv_haddr(ifft_HADDR),
+    .slv_hwrite(ifft_HWRITE),
+    .slv_htrans(ifft_HTRANS),
+    .slv_hsize(ifft_HSIZE),
+    .slv_hburst(ifft_HBURST),
+    .slv_hwdata(ifft_HWDATA),
+    .slv_hprot(ifft_HPROT),
+    .slv_hready(ifft_HREADY),
+    .slv_hmaster(ifft_HMASTER),
+    .slv_hmastlock(ifft_HMASTLOCK),
+    
+    .slv_hready_out(ifft_HREADYOUT),
+    .slv_hresp(ifft_HRESP),
+    .slv_hrdata(ifft_HRDATA),
+    .slv_hsplit(ifft_HSPLIT),
+    .slv_err(),
+    
+    .ifft_irq(ifft_irq)
 );
 
 

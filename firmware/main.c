@@ -25,6 +25,11 @@
 #define FFT_CTRL       (*((volatile uint32_t*)(FFT_BASE + 0x0C00)))
 #define IFFT_CTRL      (*((volatile uint32_t*)(IFFT_BASE + 0x0C00)))
 
+#define PING_PONG_BASE 0x50000000
+
+// PING PONG RAM Control Register (0 = Bank 0, 1 = Bank 1 for Accelerators)
+#define PING_PONG_CTRL (*((volatile uint32_t*)(PING_PONG_BASE + 0x1000)))
+
 // 512-point twiddle factors (Q15 format: Real in upper 16 bits, Imag in lower 16 bits)
 const uint32_t fft_twiddles[256] = {
     0x7FFF0000, 0x7FFDFE6E, 0x7FF5FCDC, 0x7FE9FB4A, 0x7FD8F9B8, 0x7FC1F827, 0x7FA6F696, 0x7F86F505,
@@ -61,14 +66,22 @@ const uint32_t fft_twiddles[256] = {
     0x809FF374, 0x807AF505, 0x805AF696, 0x803FF827, 0x8028F9B8, 0x8017FB4A, 0x800BFCDC, 0x8003FE6E,
 };
 
+static inline uint32_t bit_reverse(uint32_t val) {
+    uint32_t rev_idx = 0;
+    for (int j = 0; j < 9; j++) {
+        rev_idx = (rev_idx << 1) | (val & 1);
+        val >>= 1;
+    }
+    return rev_idx;
+}
+
 int main() {
-    volatile uint32_t* fft_data = (volatile uint32_t*)FFT_BASE;
     volatile uint32_t* fft_twiddle = (volatile uint32_t*)(FFT_BASE + 0x0800);
-    
-    volatile uint32_t* ifft_data = (volatile uint32_t*)IFFT_BASE;
     volatile uint32_t* ifft_twiddle = (volatile uint32_t*)(IFFT_BASE + 0x0800);
     
-    volatile uint32_t* sram_out = (volatile uint32_t*)SRAM_BASE;
+    // Direct Access to Bank 0 and Bank 1 via AHB mapping
+    volatile uint32_t* sram_bank0 = (volatile uint32_t*)(PING_PONG_BASE);
+    volatile uint32_t* sram_bank1 = (volatile uint32_t*)(PING_PONG_BASE + 0x0800);
 
     // 1. Initialize Twiddle Factors for FFT and IFFT first (CPU intensive)
     for (int i = 0; i < 256; i++) {
@@ -77,113 +90,116 @@ int main() {
         // FFT Twiddles loaded directly
         fft_twiddle[i] = val;
         
-        // IFFT Twiddles are complex conjugates: negate the imaginary part (lower 16 bits)
+        // IFFT Twiddles are complex conjugates: negate the imaginary part
         int16_t real = (int16_t)(val >> 16);
         int16_t imag = (int16_t)(val & 0xFFFF);
-        int16_t negated_imag = -imag;
-        
-        ifft_twiddle[i] = ((uint32_t)real << 16) | ((uint32_t)negated_imag & 0xFFFF);
+        ifft_twiddle[i] = ((uint32_t)real << 16) | ((uint32_t)(-imag) & 0xFFFF);
     }
 
     // 2. Initialize Peripheral Clocks, Formats, and Enable I2S
     I2S_RX_GCLK = 1;
     I2S_TX_GCLK = 1;
-    // 2. Configure I2S RX and TX for 32-bit, stereo, left-justified
     I2S_RX_PR = 2;
     I2S_TX_PR = 2;
     I2S_RX_CFG = 0x20B; 
     I2S_TX_CFG = 0x20B; 
     
-    // Enable FIFOs but keep engines disabled
     I2S_RX_CTRL = 2; // fifo_en=1, en=0
     I2S_TX_CTRL = 2; // fifo_en=1, en=0
 
-    // Prime TX FIFO with 8 dummy words (4 stereo frames) to keep it ahead of RX
     for (int i = 0; i < 8; i++) {
         I2S_TX_DATA = 0;
     }
 
-    // Enable engines
     I2S_RX_CTRL = 3; // fifo_en=1, en=1
     I2S_TX_CTRL = 3; // fifo_en=1, en=1
 
+    // Default: Hardware operates on Bank 0
+    PING_PONG_CTRL = 0;
+
     // 3. Process 4 frames continuously
     
-    // Prime the very first frame: send dummy TX data to generate I2S clocks, and receive Frame 0
+    // Prime the very first frame: send dummy TX data to generate I2S clocks, and receive Frame 0 into Bank 0
     for (int i = 0; i < 512; i++) {
-        while (I2S_TX_LEVEL > 14); 
-        I2S_TX_DATA = 0;           // Dummy data (Left)
-        while (I2S_TX_LEVEL > 14); 
-        I2S_TX_DATA = 0;           // Dummy data (Right)
+        while (I2S_TX_LEVEL > 14); I2S_TX_DATA = 0;
+        while (I2S_TX_LEVEL > 14); I2S_TX_DATA = 0;
         
         while (I2S_RX_LEVEL == 0); 
-        sram_out[i] = I2S_RX_DATA << 1; // Read Left, shift left by 1 to restore
+        uint32_t val = I2S_RX_DATA << 1; 
+        
+        // Read linearly in Natural Order
+        sram_bank0[i] = val;
+        
         while (I2S_RX_LEVEL == 0); 
-        uint32_t dummy = I2S_RX_DATA; // Read Right and discard
+        uint32_t dummy = I2S_RX_DATA;
     }
-
-    // Pause I2S clocks to prevent RX/TX from running during FFT processing
-    // I2S_TX_GCLK = 0;
-    // I2S_RX_GCLK = 0;
-
-    uint32_t* next_sram_out = (uint32_t*)(SRAM_BASE + 0x0800); // Temporary buffer for next frame
+    
+    // In-place bit reversal of the primed frame
+    for (int i = 0; i < 512; i++) {
+        uint32_t rev_idx = bit_reverse(i);
+        if (i < rev_idx) {
+            uint32_t temp = sram_bank0[i];
+            sram_bank0[i] = sram_bank0[rev_idx];
+            sram_bank0[rev_idx] = temp;
+        }
+    }
 
     for (int frame = 0; frame < 4; frame++) {
         
-        // Copy input samples to FFT Data RAM in bit-reversed order (512 points = 9 bits)
-        for (int i = 0; i < 512; i++) {
-            uint32_t rev_idx = 0;
-            uint32_t temp = i;
-            for (int j = 0; j < 9; j++) {
-                rev_idx = (rev_idx << 1) | (temp & 1);
-                temp >>= 1;
-            }
-            fft_data[rev_idx] = sram_out[i];
-        }
-
-        // Start FFT
+        // Decide ping/pong roles
+        int hardware_bank = (frame % 2);
+        int cpu_bank = 1 - hardware_bank;
+        
+        volatile uint32_t* hw_ram = (hardware_bank == 0) ? sram_bank0 : sram_bank1;
+        volatile uint32_t* cpu_ram = (cpu_bank == 0) ? sram_bank0 : sram_bank1;
+        
+        // Tell hardware accelerators to process their bank
+        PING_PONG_CTRL = hardware_bank;
+        
+        // Start FFT (operates in-place on hw_ram)
         FFT_CTRL = 1;
         
         // Wait for FFT engine completion
         while ((FFT_CTRL & 2) == 0);
 
-        // Copy FFT outputs directly from FFT Data RAM to IFFT Data RAM in bit-reversed order
-        // The twiddles are already conjugated for the IFFT, so we pass the natural X[k] directly.
+        // Perform in-place bit reversal on hw_ram for IFFT input
         for (int i = 0; i < 512; i++) {
-            uint32_t rev_idx = 0;
-            uint32_t temp = i;
-            for (int j = 0; j < 9; j++) {
-                rev_idx = (rev_idx << 1) | (temp & 1);
-                temp >>= 1;
+            uint32_t rev_idx = bit_reverse(i);
+            if (i < rev_idx) {
+                uint32_t temp = hw_ram[i];
+                hw_ram[i] = hw_ram[rev_idx];
+                hw_ram[rev_idx] = temp;
             }
-            ifft_data[rev_idx] = fft_data[i];
         }
 
-        // Start IFFT
+        // Start IFFT (operates in-place on hw_ram)
         IFFT_CTRL = 1;
 
         // Wait for IFFT engine completion
         while ((IFFT_CTRL & 2) == 0);
 
-        // Resume I2S clocks
-        // I2S_RX_GCLK = 1; // MUST wake up RX first
-        // I2S_TX_GCLK = 1; // Then start TX which generates the clocks
-
-        // Read back computed reconstructed time-domain samples from IFFT to SRAM (offset 0-511)
-        // and simultaneously output them to I2S TX, while receiving the NEXT frame
+        // Now, output the processed frame (hw_ram) while simultaneously reading the next frame into cpu_ram
         for (int i = 0; i < 512; i++) {
-            uint32_t out_val = ifft_data[i];
-            sram_out[i] = out_val;
-            
-            while (I2S_TX_LEVEL > 14); 
-            I2S_TX_DATA = out_val;     // Output Left
-            while (I2S_TX_LEVEL > 14); 
-            I2S_TX_DATA = 0;           // Output Right
+            while (I2S_TX_LEVEL > 14); I2S_TX_DATA = hw_ram[i];
+            while (I2S_TX_LEVEL > 14); I2S_TX_DATA = 0;
             
             while (I2S_RX_LEVEL == 0); 
-            next_sram_out[i] = I2S_RX_DATA << 1; // Read Left, shift left by 1 to restore
-            while (I2S_RX_LEVEL == 0); 
-            uint32_t dummy = I2S_RX_DATA; // Read Right and discard
+            uint32_t val = I2S_RX_DATA << 1; 
+            
+            // Read next frame and store in Natural Order in cpu_ram
+            cpu_ram[i] = val;
+            
+            while (I2S_RX_LEVEL == 0); uint32_t dummy = I2S_RX_DATA;
+        }
+        
+        // In-place bit reversal of the next frame
+        for (int i = 0; i < 512; i++) {
+            uint32_t rev_idx = bit_reverse(i);
+            if (i < rev_idx) {
+                uint32_t temp = cpu_ram[i];
+                cpu_ram[i] = cpu_ram[rev_idx];
+                cpu_ram[rev_idx] = temp;
+            }
         }
 
         // Toggle handshake flag to notify testbench that the current frame is complete
@@ -192,16 +208,7 @@ int main() {
         else if (frame == 1) handshake = 0x22222222;
         else if (frame == 2) handshake = 0x33333333;
         
-        *((volatile uint32_t*)(SRAM_BASE + 0x0104)) = handshake;
-
-        // Pause I2S clocks again before next FFT
-        // I2S_TX_GCLK = 0; // Stop TX clocks first
-        // I2S_RX_GCLK = 0; // Then sleep RX
-
-        // Copy next frame's data into sram_out for processing in the next iteration
-        for (int i = 0; i < 512; i++) {
-            sram_out[i] = next_sram_out[i];
-        }
+        *((volatile uint32_t*)(SRAM_BASE + 0x0F00)) = handshake;
     }
 
     while(1);

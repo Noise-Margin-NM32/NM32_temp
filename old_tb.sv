@@ -120,12 +120,12 @@ module tb;
     always @(posedge clk) begin
         if (dut.cpu_mem_valid && dut.cpu_mem_ready) begin
             if (dut.cpu_mem_wstrb != 4'b0000) begin
-                if (dut.cpu_mem_addr[31:28] == 4'h2 || dut.cpu_mem_addr[31:28] == 4'h3 || dut.cpu_mem_addr[31:28] == 4'h4 || dut.cpu_mem_addr[31:28] == 4'h5 || dut.cpu_mem_addr[31:28] == 4'h6) begin
+                if (dut.cpu_mem_addr[31:28] == 4'h2 || dut.cpu_mem_addr[31:28] == 4'h3 || dut.cpu_mem_addr[31:28] == 4'h4 || dut.cpu_mem_addr[31:28] == 4'h6) begin
                     if (dut.cpu_mem_addr == 32'h20000000 && dut.cpu_mem_wstrb == 4'b0000) $display("Time=%0t: [CPU READ] I2S_RX_DATA = 0x%08h", $time, dut.cpu_mem_rdata);
                     $display("Time=%0t: [CPU WRITE] Addr=0x%08h, Data=0x%08h, Wstrb=%b", $time, dut.cpu_mem_addr, dut.cpu_mem_wdata, dut.cpu_mem_wstrb);
                 end
             end else begin
-                if (dut.cpu_mem_addr[31:28] == 4'h2 || dut.cpu_mem_addr[31:28] == 4'h3 || dut.cpu_mem_addr[31:28] == 4'h4 || dut.cpu_mem_addr[31:28] == 4'h5 || dut.cpu_mem_addr[31:28] == 4'h6) begin
+                if (dut.cpu_mem_addr[31:28] == 4'h2 || dut.cpu_mem_addr[31:28] == 4'h3 || dut.cpu_mem_addr[31:28] == 4'h4 || dut.cpu_mem_addr[31:28] == 4'h6) begin
                     if (dut.cpu_mem_addr == 32'h20000000 && dut.cpu_mem_wstrb == 4'b0000) $display("Time=%0t: [CPU READ] I2S_RX_DATA = 0x%08h", $time, dut.cpu_mem_rdata);
                     $display("Time=%0t: [CPU READ ] Addr=0x%08h, Data=0x%08h", $time, dut.cpu_mem_addr, dut.cpu_mem_rdata);
                 end
@@ -201,36 +201,28 @@ module tb;
     end
 
     always @(posedge clk) begin
-        // The firmware writes to SRAM_BASE + 0x0F00 for handshake
-        // Since SRAM_BASE is the main CPU memory, we check the AHB signals.
-        if (dut.sram_HWRITE && dut.sram_HSEL && dut.sram_HREADY && dut.sram_HADDR == 32'h30000F00) begin
-            if (dut.sram_HWDATA == 32'h11111111 || 
-                dut.sram_HWDATA == 32'h22222222 || 
-                dut.sram_HWDATA == 32'h33333333 || 
-                dut.sram_HWDATA == 32'h55555555) begin
-                
-                $display("Time=%0t: [TESTBENCH] Handshake 0x%08h detected. Dumping current FFT frame to fft_out.txt and IFFT frame to ifft_out.txt...", $time, dut.sram_HWDATA);
-                
-                for (f_idx = 0; f_idx < 512; f_idx = f_idx + 1) begin
-                    // Dump FFT/IFFT outputs from the hardware bank (which just finished processing)
-                    // The firmware just processed hardware_bank = frame % 2. Wait, the firmware just toggled it.
-                    // We can dump both banks or just use the current accel_bank_sel (which is still set to the hardware_bank for the current frame)
-                    // Actually, at the end of the frame, the output is in hw_ram.
-                    // Let's just dump hw_ram, which is selected by accel_bank_sel
-                    if (dut.scratchpad_sram.accel_bank_sel == 0) begin
-                        $fdisplay(outfile_fft, "%08X", dut.scratchpad_sram.bank0[f_idx]);
-                        $fdisplay(outfile_ifft, "%08X", dut.scratchpad_sram.bank0[f_idx]);
-                    end else begin
-                        $fdisplay(outfile_fft, "%08X", dut.scratchpad_sram.bank1[f_idx]);
-                        $fdisplay(outfile_ifft, "%08X", dut.scratchpad_sram.bank1[f_idx]);
+        if (dut.sram0.SRAM_0.EN && ~dut.sram0.SRAM_0.R_WB) begin
+            if (dut.sram0.SRAM_0.AD == 10'd65) begin
+                if (dut.sram0.SRAM_0.DI == 32'h11111111 || 
+                    dut.sram0.SRAM_0.DI == 32'h22222222 || 
+                    dut.sram0.SRAM_0.DI == 32'h33333333 || 
+                    dut.sram0.SRAM_0.DI == 32'h55555555) begin
+                    
+                    $display("Time=%0t: [TESTBENCH] Handshake 0x%08h detected. Dumping current FFT frame to fft_out.txt and IFFT frame to ifft_out.txt...", $time, dut.sram0.SRAM_0.DI);
+                    
+                    for (f_idx = 0; f_idx < 512; f_idx = f_idx + 1) begin
+                        // Dump FFT outputs directly from the FFT engine's internal data RAM
+                        $fdisplay(outfile_fft, "%08X", dut.fft_wrapper_inst.fft_engine.data_ram.ram[f_idx]);
+                        // Dump IFFT outputs (stored at SRAM offset 0-511)
+                        $fdisplay(outfile_ifft, "%08X", dut.sram0.SRAM_0.mem[f_idx]);
                     end
-                end
-                
-                if (dut.sram_HWDATA == 32'h55555555) begin
-                    $display("Time=%0t: [TESTBENCH] Frame 4 completed. Verification simulation successful!", $time);
-                    $fclose(outfile_fft);
-                    $fclose(outfile_ifft);
-                    $finish;
+                    
+                    if (dut.sram0.SRAM_0.DI == 32'h55555555) begin
+                        $display("Time=%0t: [TESTBENCH] Frame 4 completed. Verification simulation successful!", $time);
+                        $fclose(outfile_fft);
+                        $fclose(outfile_ifft);
+                        $finish;
+                    end
                 end
             end
         end

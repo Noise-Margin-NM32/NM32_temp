@@ -613,85 +613,152 @@ boot_rom_ahb boot_rom (
     .HRESP(boot_rom_HRESP)
 );
 
-// Slave 3: FFT Accelerator Wrapper
-nm32_fft_ahb_wrapper #(
-    .BASE_ADDR(32'h4000_0000),
-    .ADDR_MASK(32'h0000_0FFF)
-) fft_wrapper_inst (
-    .hclk(clk),
-    .hresetn(rstn),
+    // Shared RAM wires for FFT
+    wire        fft_ram_we_a;
+    wire [8:0]  fft_ram_addr_a;
+    wire [31:0] fft_ram_din_a;
+    wire [31:0] fft_ram_dout_a;
+    wire        fft_ram_we_b;
+    wire [8:0]  fft_ram_addr_b;
+    wire [31:0] fft_ram_din_b;
+    wire [31:0] fft_ram_dout_b;
+    wire        fft_busy;
     
-    .slv_hsel(fft_HSEL),
-    .slv_haddr(fft_HADDR),
-    .slv_hwrite(fft_HWRITE),
-    .slv_htrans(fft_HTRANS),
-    .slv_hsize(fft_HSIZE),
-    .slv_hburst(fft_HBURST),
-    .slv_hwdata(fft_HWDATA),
-    .slv_hprot(fft_HPROT),
-    .slv_hready(fft_HREADY),
-    .slv_hmaster(fft_HMASTER),
-    .slv_hmastlock(fft_HMASTLOCK),
-    
-    .slv_hready_out(fft_HREADYOUT),
-    .slv_hresp(fft_HRESP),
-    .slv_hrdata(fft_HRDATA),
-    .slv_hsplit(fft_HSPLIT),
-    .slv_err(),
-    
-    .fft_irq(fft_irq)
-);
+    // Slave 3: FFT Accelerator Wrapper
+    nm32_fft_ahb_wrapper #(
+        .BASE_ADDR(32'h4000_0000),
+        .ADDR_MASK(32'h0000_0FFF)
+    ) fft_wrapper_inst (
+        .hclk(clk),
+        .hresetn(rstn),
+        
+        .slv_hsel(fft_HSEL),
+        .slv_haddr(fft_HADDR),
+        .slv_hwrite(fft_HWRITE),
+        .slv_htrans(fft_HTRANS),
+        .slv_hsize(fft_HSIZE),
+        .slv_hburst(fft_HBURST),
+        .slv_hwdata(fft_HWDATA),
+        .slv_hprot(fft_HPROT),
+        .slv_hready(fft_HREADY),
+        .slv_hmaster(fft_HMASTER),
+        .slv_hmastlock(fft_HMASTLOCK),
+        
+        .slv_hready_out(fft_HREADYOUT),
+        .slv_hresp(fft_HRESP),
+        .slv_hrdata(fft_HRDATA),
+        .slv_hsplit(fft_HSPLIT),
+        .slv_err(),
+        
+        .fft_irq(fft_irq),
+        
+        .ram_we_a(fft_ram_we_a),
+        .ram_addr_a(fft_ram_addr_a),
+        .ram_din_a(fft_ram_din_a),
+        .ram_dout_a(fft_ram_dout_a),
+        .ram_we_b(fft_ram_we_b),
+        .ram_addr_b(fft_ram_addr_b),
+        .ram_din_b(fft_ram_din_b),
+        .ram_dout_b(fft_ram_dout_b),
+        .fft_busy(fft_busy)
+    );
 
-// Slave 4: Custom Scratchpad RAM (16KB)
-ahb_sram #(
-    .AHB_MAX_ADDR(12) // 16KB SRAM
-) scratchpad_sram (
-    .hclk(clk),
-    .hresetn(rstn),
+    // Shared RAM wires for IFFT
+    wire        ifft_ram_we_a;
+    wire [8:0]  ifft_ram_addr_a;
+    wire [31:0] ifft_ram_din_a;
+    wire [31:0] ifft_ram_dout_a;
+    wire        ifft_ram_we_b;
+    wire [8:0]  ifft_ram_addr_b;
+    wire [31:0] ifft_ram_din_b;
+    wire [31:0] ifft_ram_dout_b;
+    wire        ifft_busy;
     
-    .hsel(scratch_HSEL),
-    .haddr(scratch_HADDR),
-    .hwrite(scratch_HWRITE),
-    .htrans(scratch_HTRANS),
-    .hsize(scratch_HSIZE),
-    .hburst(scratch_HBURST),
-    .hwdata(scratch_HWDATA),
-    .hprot(scratch_HPROT),
-    .hready_in(scratch_HREADY),
+    // Accelerator Port MUXing (FFT vs IFFT) based on busy signals
+    // Assuming they don't run at the same exact cycle
+    wire        accel_we_a   = fft_busy ? fft_ram_we_a   : ifft_ram_we_a;
+    wire [8:0]  accel_addr_a = fft_busy ? fft_ram_addr_a : ifft_ram_addr_a;
+    wire [31:0] accel_din_a  = fft_busy ? fft_ram_din_a  : ifft_ram_din_a;
     
-    .hready_out(scratch_HREADYOUT),
-    .hresp(scratch_HRESP),
-    .hrdata(scratch_HRDATA)
-);
+    wire        accel_we_b   = fft_busy ? fft_ram_we_b   : ifft_ram_we_b;
+    wire [8:0]  accel_addr_b = fft_busy ? fft_ram_addr_b : ifft_ram_addr_b;
+    wire [31:0] accel_din_b  = fft_busy ? fft_ram_din_b  : ifft_ram_din_b;
+    
+    wire [31:0] accel_dout_a;
+    wire [31:0] accel_dout_b;
+    
+    assign fft_ram_dout_a = accel_dout_a;
+    assign fft_ram_dout_b = accel_dout_b;
+    
+    assign ifft_ram_dout_a = accel_dout_a;
+    assign ifft_ram_dout_b = accel_dout_b;
 
-// Slave 5: IFFT Accelerator Wrapper
-nm32_ifft_ahb_wrapper #(
-    .BASE_ADDR(32'h6000_0000),
-    .ADDR_MASK(32'h0000_0FFF)
-) ifft_wrapper_inst (
-    .hclk(clk),
-    .hresetn(rstn),
-    
-    .slv_hsel(ifft_HSEL),
-    .slv_haddr(ifft_HADDR),
-    .slv_hwrite(ifft_HWRITE),
-    .slv_htrans(ifft_HTRANS),
-    .slv_hsize(ifft_HSIZE),
-    .slv_hburst(ifft_HBURST),
-    .slv_hwdata(ifft_HWDATA),
-    .slv_hprot(ifft_HPROT),
-    .slv_hready(ifft_HREADY),
-    .slv_hmaster(ifft_HMASTER),
-    .slv_hmastlock(ifft_HMASTLOCK),
-    
-    .slv_hready_out(ifft_HREADYOUT),
-    .slv_hresp(ifft_HRESP),
-    .slv_hrdata(ifft_HRDATA),
-    .slv_hsplit(ifft_HSPLIT),
-    .slv_err(),
-    
-    .ifft_irq(ifft_irq)
-);
+    // Slave 4: Ping-Pong Shared RAM (Replaces Scratchpad)
+    ping_pong_ram scratchpad_sram (
+        .clk(clk),
+        .rstn(rstn),
+        
+        // AHB Slave Interface
+        .hsel(scratch_HSEL),
+        .haddr(scratch_HADDR),
+        .hwrite(scratch_HWRITE),
+        .htrans(scratch_HTRANS),
+        .hsize(scratch_HSIZE),
+        .hwdata(scratch_HWDATA),
+        .hready_in(scratch_HREADY),
+        .hready_out(scratch_HREADYOUT),
+        .hrdata(scratch_HRDATA),
+        
+        // Shared Accelerator Ports
+        .accel_we_a(accel_we_a),
+        .accel_addr_a(accel_addr_a),
+        .accel_din_a(accel_din_a),
+        .accel_dout_a(accel_dout_a),
+        
+        .accel_we_b(accel_we_b),
+        .accel_addr_b(accel_addr_b),
+        .accel_din_b(accel_din_b),
+        .accel_dout_b(accel_dout_b)
+    );
+
+    // Slave 5: IFFT Accelerator Wrapper
+    nm32_ifft_ahb_wrapper #(
+        .BASE_ADDR(32'h6000_0000),
+        .ADDR_MASK(32'h0000_0FFF)
+    ) ifft_wrapper_inst (
+        .hclk(clk),
+        .hresetn(rstn),
+        
+        .slv_hsel(ifft_HSEL),
+        .slv_haddr(ifft_HADDR),
+        .slv_hwrite(ifft_HWRITE),
+        .slv_htrans(ifft_HTRANS),
+        .slv_hsize(ifft_HSIZE),
+        .slv_hburst(ifft_HBURST),
+        .slv_hwdata(ifft_HWDATA),
+        .slv_hprot(ifft_HPROT),
+        .slv_hready(ifft_HREADY),
+        .slv_hmaster(ifft_HMASTER),
+        .slv_hmastlock(ifft_HMASTLOCK),
+        
+        .slv_hready_out(ifft_HREADYOUT),
+        .slv_hresp(ifft_HRESP),
+        .slv_hrdata(ifft_HRDATA),
+        .slv_hsplit(ifft_HSPLIT),
+        .slv_err(),
+        
+        .ifft_irq(ifft_irq),
+        
+        .ram_we_a(ifft_ram_we_a),
+        .ram_addr_a(ifft_ram_addr_a),
+        .ram_din_a(ifft_ram_din_a),
+        .ram_dout_a(ifft_ram_dout_a),
+        .ram_we_b(ifft_ram_we_b),
+        .ram_addr_b(ifft_ram_addr_b),
+        .ram_din_b(ifft_ram_din_b),
+        .ram_dout_b(ifft_ram_dout_b),
+        .ifft_busy(ifft_busy)
+    );
 
 
 

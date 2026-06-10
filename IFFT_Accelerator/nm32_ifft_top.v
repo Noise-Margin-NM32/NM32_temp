@@ -4,10 +4,15 @@ module nm32_ifft_top (
     input wire clk,
     input wire rst,
     input wire start,
-    input wire ext_we,
-    input wire [8:0] ext_addr,
-    input wire [31:0] ext_din,
-    output wire [31:0] ext_dout,
+    output wire ram_we_a,
+    output wire [8:0] ram_addr_a,
+    output wire [31:0] ram_din_a,
+    input  wire [31:0] ram_dout_a,
+    
+    output wire ram_we_b,
+    output wire [8:0] ram_addr_b,
+    output wire [31:0] ram_din_b,
+    input  wire [31:0] ram_dout_b,
     
     // Twiddle RAM Write Ports (Mapped to AHB)
     input wire tw_we,
@@ -18,20 +23,18 @@ module nm32_ifft_top (
     output reg done
 );
 
-    wire [31:0] ram_dout_a, ram_dout_b;
-    reg [31:0] ram_din_a_reg, ram_din_b;
-    reg [8:0] ram_addr_a_reg, ram_addr_b;
-    reg ram_we_a_reg, ram_we_b;
+    reg [31:0] ram_din_a_reg, ram_din_b_reg;
+    reg [8:0] ram_addr_a_reg, ram_addr_b_reg;
+    reg ram_we_a_reg, ram_we_b_reg;
 
-    wire [8:0] ram_addr_a = (state == 0) ? ext_addr : ram_addr_a_reg;
-    wire [31:0] ram_din_a = (state == 0) ? ext_din : ram_din_a_reg;
-    wire ram_we_a = (state == 0) ? ext_we : ram_we_a_reg;
+    // Export RAM signals directly instead of multiplexing
+    assign ram_we_a   = ram_we_a_reg;
+    assign ram_addr_a = ram_addr_a_reg;
+    assign ram_din_a  = ram_din_a_reg;
 
-    ifft_data_ram data_ram (
-        .clk(clk),
-        .we_a(ram_we_a), .addr_a(ram_addr_a), .din_a(ram_din_a), .dout_a(ram_dout_a),
-        .we_b(ram_we_b), .addr_b(ram_addr_b), .din_b(ram_din_b), .dout_b(ram_dout_b)
-    );
+    assign ram_we_b   = ram_we_b_reg;
+    assign ram_addr_b = ram_addr_b_reg;
+    assign ram_din_b  = ram_din_b_reg;
 
     // -----------------------------------------------------------------
     // Twiddle RAM (256 x 32-bit words)
@@ -74,7 +77,7 @@ module nm32_ifft_top (
         .done(bf_done)
     );
 
-    assign ext_dout = ram_dout_a;
+    // ext_dout removed
 
     reg [3:0] s;
     reg [9:0] m;
@@ -88,16 +91,15 @@ module nm32_ifft_top (
             state <= 0;
             done <= 0;
             bf_start <= 0;
-            ram_we_a_reg <= 0; ram_we_b <= 0;
+            ram_we_a_reg <= 0; ram_we_b_reg <= 0;
             s <= 1; m <= 2; m2 <= 1; k <= 0; j <= 0;
         end else begin
             case (state)
                 0: begin
                     done <= 0;
-                    ram_we_a_reg <= ext_we;
-                    ram_we_b <= 0;
-                    ram_addr_a_reg <= ext_addr;
-                    ram_din_a_reg <= ext_din;
+                    ram_we_a_reg <= 0;
+                    ram_we_b_reg <= 0;
+                    ram_din_a_reg <= 0;
                     
                     if (start) begin
                         s <= 1; m <= 2; m2 <= 1; k <= 0; j <= 0;
@@ -108,7 +110,7 @@ module nm32_ifft_top (
                 
                 1: begin
                     ram_addr_a_reg <= k + j;
-                    ram_addr_b <= k + j + m2;
+                    ram_addr_b_reg <= k + j + m2;
                     tw_addr <= j << (9 - s);
                     state <= 2;
                 end
@@ -129,14 +131,14 @@ module nm32_ifft_top (
                     bf_start <= 0;
                     if (bf_done) begin
                         ram_din_a_reg <= {bf_X_re, bf_X_im};
-                        ram_din_b <= {bf_Y_re, bf_Y_im};
-                        ram_we_a_reg <= 1; ram_we_b <= 1;
+                        ram_din_b_reg <= {bf_Y_re, bf_Y_im};
+                        ram_we_a_reg <= 1; ram_we_b_reg <= 1;
                         state <= 5;
                     end
                 end
                 
                 5: begin
-                    ram_we_a_reg <= 0; ram_we_b <= 0;
+                    ram_we_a_reg <= 0; ram_we_b_reg <= 0;
                     if (j + 1 == m2) begin
                         j <= 0;
                         if (k + m >= 512) begin

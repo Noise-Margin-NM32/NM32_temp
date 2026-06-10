@@ -28,7 +28,21 @@ module nm32_fft_ahb_wrapper #(
     output wire        slv_err,
     
     // Hardware Interrupt to CPU
-    output wire        fft_irq
+    output wire        fft_irq,
+    
+    // Exposed Shared RAM Interface
+    output wire        ram_we_a,
+    output wire [8:0]  ram_addr_a,
+    output wire [31:0] ram_din_a,
+    input  wire [31:0] ram_dout_a,
+    
+    output wire        ram_we_b,
+    output wire [8:0]  ram_addr_b,
+    output wire [31:0] ram_din_b,
+    input  wire [31:0] ram_dout_b,
+    
+    // Hardware Status for Arbiter
+    output wire        fft_busy
 );
 
     // -----------------------------------------------------------------------
@@ -107,15 +121,30 @@ module nm32_fft_ahb_wrapper #(
     wire [31:0] tw_ext_dout;
     
     wire done;
+    
+    // Busy signal for arbiter (high when start is high or not done and not idle)
+    // Actually we can just track if state is not idle. But we don't have state here.
+    // Let's use a simple RS flip-flop for busy: Set on start, Reset on done.
+    reg busy;
+    always @(posedge clk or posedge rst) begin
+        if (rst) busy <= 0;
+        else if (start) busy <= 1;
+        else if (done) busy <= 0;
+    end
+    assign fft_busy = busy;
 
     nm32_fft_top fft_engine (
         .clk(clk),
         .rst(rst),
         .start(start),
-        .ext_we(ext_we),
-        .ext_addr(ext_addr),
-        .ext_din(ext_din),
-        .ext_dout(ext_dout),
+        .ram_we_a(ram_we_a),
+        .ram_addr_a(ram_addr_a),
+        .ram_din_a(ram_din_a),
+        .ram_dout_a(ram_dout_a),
+        .ram_we_b(ram_we_b),
+        .ram_addr_b(ram_addr_b),
+        .ram_din_b(ram_din_b),
+        .ram_dout_b(ram_dout_b),
         .tw_we(tw_we),
         .tw_ext_addr(tw_ext_addr),
         .tw_ext_din(tw_ext_din),
@@ -135,12 +164,6 @@ module nm32_fft_ahb_wrapper #(
     
     wire is_ctrl_reg = (local_addr == 12'hC00);
     wire is_twid_ram = (local_addr >= 12'h800 && local_addr < 12'hC00);
-    wire is_data_ram = (local_addr < 12'h800);
-    
-    // Map internal memories directly
-    assign ext_addr = local_addr[10:2]; 
-    assign ext_din  = s_wrap_wdata;
-    assign ext_we   = (is_data_ram && s_wrap_take);
     
     assign tw_ext_addr = local_addr[9:2]; // 256 words
     assign tw_ext_din  = s_wrap_wdata;
@@ -152,7 +175,7 @@ module nm32_fft_ahb_wrapper #(
         if (!hresetn) begin
             read_stall <= 1'b0;
         end else begin
-            if (s_wrap_ask && (is_data_ram || is_twid_ram) && !read_stall) begin
+            if (s_wrap_ask && is_twid_ram && !read_stall) begin
                 read_stall <= 1'b1; // Wait 1 cycle for RAM
             end else if (read_stall) begin
                 read_stall <= 1'b0;
@@ -161,10 +184,8 @@ module nm32_fft_ahb_wrapper #(
     end
     
     // Accept writes immediately (Zero wait state for writes).
-    assign s_wrap_take_ok = 1'b1; 
-    
-    // Accept reads immediately if Control Reg, or after 1 cycle stall if Data/Twiddle RAM
-    assign s_wrap_ask_ok = is_ctrl_reg ? 1'b1 : ((is_data_ram || is_twid_ram) ? read_stall : 1'b1);
+    assign s_wrap_take_ok = (is_twid_ram) ? 1'b1 : 1'b1; 
+    assign s_wrap_ask_ok  = (is_twid_ram) ? read_stall : 1'b1;
 
     // Read Data Mux
     always @(*) begin
@@ -172,10 +193,8 @@ module nm32_fft_ahb_wrapper #(
         if (is_ctrl_reg) begin
             s_wrap_rdata[1] = done_latched;
             s_wrap_rdata[0] = 1'b0; // start is write-only/auto-clears
-        end else if (is_data_ram) begin
-            s_wrap_rdata = ext_dout; // Ready after 1 cycle stall
         end else if (is_twid_ram) begin
-            s_wrap_rdata = tw_ext_dout; // Ready after 1 cycle stall
+            s_wrap_rdata = tw_ext_dout;
         end
     end
     

@@ -15,3 +15,6 @@ ifft_out.txt
 audio_in.txt
 *.cache/
 *.sim/
+*.log
+*.jou
+*.str

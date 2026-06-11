@@ -20,3 +20,32 @@ Previously, the FFT and IFFT accelerators relied on their own internal "Data RAM
 ### 4. Wait-State Timing Fix for SRAM Reads
 **The Change:** Block RAMs on FPGAs are synchronous and possess a 1-clock-cycle read latency. The initial custom AHB interface incorrectly asserted zero wait states (`hready_out = 1`). We modified the interface to inject exactly 1 wait state (`hready_out = 0`) upon a read request.
 **How it helps:** It prevents the CPU from sampling the bus before the memory outputs the data. This completely resolved an issue where undefined `XXXXXXXX` garbage data was propagating through the FFT math engine, ensuring absolute data integrity at high CPU frequencies.
+
+## How to Run the Simulation
+
+If you are cloning this repository to a new machine, follow these steps to instantly run the SoC simulation with perfect mathematical data output. The testbench is 100% portable and uses relative paths.
+
+1. **Clone and Checkout:**
+   Clone the repository and make sure you switch to the correct branch containing the zero-copy architecture fixes.
+   ```bash
+   git clone <repository_url>
+   cd NM32_SoC
+   git checkout feature/zero-copy-ping-pong
+   ```
+
+2. **Generate the Input Audio:**
+   The simulated `audio_in.txt` samples are not tracked in git. You can instantly generate a synthetic audio mix (1000Hz + 2500Hz) by running this single python command in the root folder:
+   ```bash
+   python3 -c "import verify_fft; verify_fft.generate_audio_signal()"
+   ```
+
+3. **Run Vivado:**
+   * Open the Vivado project (`NM32_top_temp/NM32_top_temp.xpr`).
+   * Click **Run Simulation**.
+   * The testbench will read the `audio_in.txt` and automatically output `fft_out.txt` and `ifft_out.txt` in the root directory!
+
+4. **(Optional) Verify Outputs:**
+   If you have matplotlib installed, you can plot the waveforms to verify the hardware mathematical accuracy by running:
+   ```bash
+   python3 verify_fft.py
+   ```

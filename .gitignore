@@ -10,6 +10,7 @@ __pycache__/
 *.bin
 *.elf
 *.hex
+!firmware/firmware.hex
 fft_out.txt
 ifft_out.txt
 audio_in.txt

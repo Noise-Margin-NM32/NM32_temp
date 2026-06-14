@@ -5,7 +5,7 @@ CC = $(PREFIX)gcc
 OBJCOPY = $(PREFIX)objcopy 
 
 # PicoRV32 specific flags: 32-bit integer instructions only (RV32I)
-CFLAGS = -mabi=ilp32 -march=rv32im -Os -ffreestanding -nostdlib
+CFLAGS = -mabi=ilp32 -march=rv32i -Os -ffreestanding -nostdlib
 
 # Default target
 all: firmware.hex

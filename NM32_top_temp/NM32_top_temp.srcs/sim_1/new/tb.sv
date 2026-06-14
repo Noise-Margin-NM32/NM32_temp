@@ -29,7 +29,7 @@ module tb;
     assign sdi = sdi_reg;
 
     initial begin
-        $readmemh("../../../../../audio_in.txt", audio_in_mem);
+        $readmemh("/home/omkar/NM32_temp/audio_in.txt", audio_in_mem);
     end
 
     // Robust Synchronous I2S Serializer
@@ -196,8 +196,8 @@ module tb;
     integer outfile_ifft;
     integer f_idx;
     initial begin
-        outfile_fft = $fopen("../../../../../fft_out.txt", "w");
-        outfile_ifft = $fopen("../../../../../ifft_out.txt", "w");
+        outfile_fft = $fopen("./fft_out.txt", "w");
+        outfile_ifft = $fopen("./ifft_out.txt", "w");
     end
 
     always @(posedge clk) begin

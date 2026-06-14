@@ -82,13 +82,13 @@ wire [31:0] cpu_mem_rdata;
 
 wire [14:0] mst_hbusreq;   // [i] = master i hbusreq
 wire [14:0] mst_hlock;
-wire [29:0] mst_htrans;    // [2i+1:2i] = master i htrans
-wire [31:0] mst_haddr   [0:14];
+wire [14:0][1:0]  mst_htrans;    //changed by agy
+wire [14:0][31:0] mst_haddr;     //changed by agy
 wire [14:0] mst_hwrite;
-wire [2:0]  mst_hsize   [0:14];
-wire [2:0]  mst_hburst  [0:14];
-wire [3:0]  mst_hprot   [0:14];
-wire [31:0] mst_hwdata  [0:14];
+wire [14:0][2:0]  mst_hsize;     //changed by agy
+wire [14:0][2:0]  mst_hburst;    //changed by agy
+wire [14:0][3:0]  mst_hprot;     //changed by agy
+wire [14:0][31:0] mst_hwdata;    //changed by agy
 
 // Master inputs (what arbiter feeds back to each master)
 wire [14:0] mst_hgrant;
@@ -111,9 +111,9 @@ wire                slv_hready_in;  // hready fed into slaves
 
 // Slave outputs (what each slave drives back)
 wire [NUM_SLVS-1:0] slv_hready_in_v;
-wire [1:0]          slv_hresp_v   [0:14];
-wire [31:0]         slv_hrdata_v  [0:14];
-wire [15:0]         slv_hsplit_v  [0:14];
+wire [14:0][1:0]          slv_hresp_v;  //changed by agy
+wire [14:0][31:0]         slv_hrdata_v; //changed by agy
+wire [14:0][15:0]         slv_hsplit_v; //changed by agy
 
 
 //AHB to APB bridge wires
@@ -201,7 +201,7 @@ wire [1:0]  boot_rom_HRESP;
 
 assign mst_hbusreq[0] = cpu_hbusreq;        //CPU sending to the arbiter
 assign mst_hlock[0] = cpu_hlock;
-assign mst_htrans[1:0] = cpu_htrans;
+assign mst_htrans[0] = cpu_htrans; //changed by agy
 assign mst_haddr[0] = cpu_haddr;
 assign mst_hwrite[0] = cpu_hwrite;
 assign mst_hsize[0] = cpu_hsize;
@@ -214,7 +214,7 @@ generate
     for(i = 1; i<15; i = i+1) begin
         assign mst_hbusreq[i] = 1'b0;
         assign mst_hlock[i] = 1'b0;
-        assign mst_htrans[2*i +: 2] = 2'b00;
+        assign mst_htrans[i] = 2'b00; //changed by agy
         assign mst_haddr[i] = 1'b0;
         assign mst_hwrite[i] = 1'b0;
         assign mst_hsize[i] = 1'b0;
@@ -368,7 +368,7 @@ assign bridge_p_rdata =     (i2s_PSEL) ? i2s_PRDATA: // From APB slave to bridge
 // assign slv_hsplit_v = {(NUM_SLVS){16'b0}}; // No splits for now
 
 
-assign slv_hrdata_v[0] = bridge_h_rdata; // To arbiter (only from slave 0)
+assign slv_hrdata_v[0] = bridge_h_rdata; // To arbiter (only from slave 0) 
 assign slv_hresp_v[0] = {1'b0, bridge_h_resp}; // To arbiter (only from slave 0)
 assign slv_hready_in_v[0] = bridge_h_ready_out; // To arbiter (only from slave 0)
 assign slv_hsplit_v[0] = 0; // No splits for now
@@ -426,7 +426,7 @@ picorv32 cpu (
 );
 
 pico_to_ahb wrapper( .clk(clk), .resetn(rstn), 
-    .mem_valid(cpu_mem_valid), .mem_ready(cpu_mem_ready), .mem_addr(cpu_mem_addr), 
+    .mem_valid(cpu_mem_valid), .mem_ready(cpu_mem_ready), .mem_addr(cpu_mem_addr),
     .mem_wdata(cpu_mem_wdata), .mem_wstrb(cpu_mem_wstrb), .mem_rdata(cpu_mem_rdata),
 
     .mst_haddr(cpu_haddr), .mst_htrans(cpu_htrans), .mst_hsize(cpu_hsize), .mst_hwrite(cpu_hwrite), .mst_hwdata(cpu_hwdata),
@@ -443,7 +443,7 @@ ahb_arbiter #(
     .DEF_ARB_MST(0),
     .NUM_SLVS(NUM_SLVS),
     .ALG_NUMBER(1),            //Round Robin
-    .ADDR_LOW_FLAT({320'b0, 32'h6000_0000, 32'h5000_0000, 32'h4000_0000, 32'h0000_0000, 32'h3000_0000, 32'h2000_0000}),
+    .ADDR_LOW_FLAT({320'b0, 32'h6000_0000, 32'h5000_0000, 32'h4000_0000, 32'h0000_0000, 32'h3000_0000, 32'h2000_0000}),//ifft, scratchpad, fft, bootrom, sram, apbbridge
     .ADDR_HIGH_FLAT({320'b0, 32'h6000_0FFF, 32'h5000_3FFF, 32'h4000_0FFF, 32'h0000_FFFF, 32'h3000_FFFF, 32'h200F_FFFF})
 ) 
 arbiter  

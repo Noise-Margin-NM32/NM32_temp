@@ -1,3 +1,5 @@
+
+
 #include <stdint.h>
 #include "audio_in.h"
 
@@ -91,9 +93,9 @@ int main() {
         fft_twiddle[i] = val;
         
         // IFFT Twiddles are complex conjugates: negate the imaginary part
-        int16_t real = (int16_t)(val >> 16);
+        //int16_t real = (int16_t)(val >> 16);
         int16_t imag = (int16_t)(val & 0xFFFF);
-        ifft_twiddle[i] = ((uint32_t)real << 16) | ((uint32_t)(-imag) & 0xFFFF);
+        ifft_twiddle[i] = (val & 0xFFFF0000) | ((uint32_t)(-imag) & 0xFFFF);
     }
 
     // 2. Initialize Peripheral Clocks, Formats, and Enable I2S
@@ -122,7 +124,7 @@ int main() {
     // Prime the very first frame: send dummy TX data to generate I2S clocks, and receive Frame 0 into Bank 0
     for (int i = 0; i < 512; i++) {
         while (I2S_TX_LEVEL > 14); I2S_TX_DATA = 0;
-        while (I2S_TX_LEVEL > 14); I2S_TX_DATA = 0;
+        while (I2S_TX_LEVEL > 14); I2S_TX_DATA = 0;   //????
         
         while (I2S_RX_LEVEL == 0); 
         uint32_t val = I2S_RX_DATA << 1; 

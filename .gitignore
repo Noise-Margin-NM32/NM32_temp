@@ -18,3 +18,4 @@ audio_in.txt
 *.log
 *.jou
 *.str
+.Xil/

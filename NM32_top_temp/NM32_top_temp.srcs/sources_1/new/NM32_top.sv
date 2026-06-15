@@ -437,12 +437,35 @@ pico_to_ahb wrapper( .clk(clk), .resetn(rstn),
 
 // Other masters (if any) would be assigned here
 
-ahb_arbiter #(
-    .NUM_ARB(0),
+wire [15*32-1:0]     mst_haddr_flat;
+wire [15*32-1:0]     mst_hwdata_flat;
+wire [15*3-1:0]      mst_hsize_flat;
+wire [NUM_SLVS*2-1:0]  slv_hresp_flat;
+wire [NUM_SLVS*32-1:0] slv_hrdata_flat;
+
+genvar i_flat;
+generate
+    for (i_flat = 0; i_flat < 15; i_flat = i_flat + 1) begin : gen_mst_flat
+        assign mst_haddr_flat[32*i_flat +: 32] = mst_haddr[i_flat];
+        assign mst_hwdata_flat[32*i_flat +: 32] = mst_hwdata[i_flat];
+        assign mst_hsize_flat[3*i_flat +: 3] = mst_hsize[i_flat];
+    end
+    for (i_flat = 0; i_flat < NUM_SLVS; i_flat = i_flat + 1) begin : gen_slv_flat
+        assign slv_hresp_flat[2*i_flat +: 2] = slv_hresp_v[i_flat];
+        assign slv_hrdata_flat[32*i_flat +: 32] = slv_hrdata_v[i_flat];
+    end
+endgenerate
+
+// Tie-offs for unused slave output signals
+assign slv_hburst_out = 3'b000;
+assign slv_hprot_out = 4'b0000;
+assign slv_hmaster_out = 4'b0000;
+assign slv_hmastlock_out = 1'b0;
+
+ahb_decoder_and_arbiter #(
     .NUM_ARB_MSTS(1),
     .DEF_ARB_MST(0),
     .NUM_SLVS(NUM_SLVS),
-    .ALG_NUMBER(1),            //Round Robin
     .ADDR_LOW_FLAT({320'b0, 32'h6000_0000, 32'h5000_0000, 32'h4000_0000, 32'h0000_0000, 32'h3000_0000, 32'h2000_0000}),
     .ADDR_HIGH_FLAT({320'b0, 32'h6000_0FFF, 32'h5000_3FFF, 32'h4000_0FFF, 32'h0000_FFFF, 32'h3000_FFFF, 32'h200F_FFFF})
 ) 
@@ -450,43 +473,36 @@ arbiter
 (
     .hclk(clk),
     .hresetn(rstn),
-    .remap(remap),
 
     // Master interface
     .mst_hbusreq(mst_hbusreq),
-    .mst_hlock(mst_hlock),
-    .mst_haddr(mst_haddr),
-    .mst_hsize(mst_hsize),
     .mst_htrans(mst_htrans),
+    .mst_haddr_flat(mst_haddr_flat),
+    .mst_hsize_flat(mst_hsize_flat),
     .mst_hwrite(mst_hwrite),
-    .mst_hburst(mst_hburst),
-    .mst_hprot(mst_hprot),
-    .mst_hwdata(mst_hwdata),
+    .mst_hwdata_flat(mst_hwdata_flat),
 
     // Slave interface
     .slv_hsel(slv_hsel),
-    .slv_haddr_out(slv_haddr_out),
-    .slv_hwrite_out(slv_hwrite_out),
-    .slv_htrans_out(slv_htrans_out),
-    .slv_hsize_out(slv_hsize_out),
-    .slv_hburst_out(slv_hburst_out),
-    .slv_hprot_out(slv_hprot_out),
-    .slv_hwdata_out(slv_hwdata_out),
-    .slv_hmaster_out(slv_hmaster_out),
-    .slv_hmastlock_out(slv_hmastlock_out),
-    .slv_hready_in(slv_hready_in),
+    .sel_haddr(slv_haddr_out),
+    .sel_hwrite(slv_hwrite_out),
+    .sel_htrans(slv_htrans_out),
+    .sel_hsize(slv_hsize_out),
+    .sel_hwdata(slv_hwdata_out),
+    
+    // The interconnect's global hready driving the slaves
+    .hready(slv_hready_in),
 
-// Feedback from slaves to arbiter
+    // Feedback from slaves to arbiter
     .slv_hready_in_v(slv_hready_in_v),
-    .slv_hresp_v(slv_hresp_v),
-    .slv_hrdata_v(slv_hrdata_v),
-    .slv_hsplit_v(slv_hsplit_v),
+    .slv_hresp_flat(slv_hresp_flat),
+    .slv_hrdata_flat(slv_hrdata_flat),
 
     // Outputs to masters
     .mst_hgrant(mst_hgrant),
-    .mst_hready_out(mst_hready_out),
-    .mst_hresp_out(mst_hresp_out),
-    .mst_hrdata_out(mst_hrdata_out)
+    .slv_hready_mux(mst_hready_out),
+    .slv_hresp_mux(mst_hresp_out),
+    .slv_hrdata_mux(mst_hrdata_out)
 );
 
 AHB_to_APB_Bridge #(

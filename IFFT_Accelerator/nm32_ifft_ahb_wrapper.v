@@ -13,18 +13,18 @@ module nm32_ifft_ahb_wrapper #(
     input  wire        slv_hwrite,
     input  wire [1:0]  slv_htrans,
     input  wire [2:0]  slv_hsize,
-    input  wire [2:0]  slv_hburst,
+//     input  wire [2:0]  slv_hburst, //changed by agy
     input  wire [31:0] slv_hwdata,
-    input  wire [3:0]  slv_hprot,
+//     input  wire [3:0]  slv_hprot, //changed by agy
     input  wire        slv_hready,
-    input  wire [3:0]  slv_hmaster,
-    input  wire        slv_hmastlock,
+//     input  wire [3:0]  slv_hmaster, //changed by agy
+//     input  wire        slv_hmastlock, //changed by agy
     
     // AHB slave outputs
     output wire        slv_hready_out,
     output wire [1:0]  slv_hresp,
     output wire [31:0] slv_hrdata,
-    output wire [15:0] slv_hsplit,
+//     output wire [15:0] slv_hsplit, //changed by agy
     output wire        slv_err,
     
     // Hardware Interrupt to CPU
@@ -75,17 +75,17 @@ module nm32_ifft_ahb_wrapper #(
         .slv_hwrite(slv_hwrite),
         .slv_htrans(slv_htrans),
         .slv_hsize(slv_hsize),
-        .slv_hburst(slv_hburst),
+//         .slv_hburst(slv_hburst), //changed by agy
         .slv_hwdata(slv_hwdata),
-        .slv_hprot(slv_hprot),
+//         .slv_hprot(slv_hprot), //changed by agy
         .slv_hready(slv_hready),
-        .slv_hmaster(slv_hmaster),
-        .slv_hmastlock(slv_hmastlock),
+//         .slv_hmaster(slv_hmaster), //changed by agy
+//         .slv_hmastlock(slv_hmastlock), //changed by agy
         
         .slv_hready_out(slv_hready_out),
         .slv_hresp(slv_hresp),
         .slv_hrdata(slv_hrdata),
-        .slv_hsplit(slv_hsplit),
+//         .slv_hsplit(slv_hsplit), //changed by agy
         .slv_err(slv_err),
         
         // Unused wrapper inputs mapped to 1

@@ -37,6 +37,8 @@ module nm32_top(
 /////////////////////////////////           Wires and Parameters           ////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+localparam NUM_ARB_MSTS = 1; // Number of AHB masters in the system
+localparam DEF_ARB_MST  = 0; // Default AHB master to be granted bus access when no other masters are requesting
 localparam NUM_SLVS = 6;
 localparam TRAN_WIDTH = 2;
 localparam DATA_WIDTH = 32;
@@ -58,9 +60,9 @@ wire [1:0]  cpu_hresp;
 
 wire cpu_hgrant;
 wire cpu_hbusreq;
-wire cpu_hlock;
-wire [2:0] cpu_hburst;
-wire [3:0] cpu_hprot;
+// wire cpu_hlock; //changed by agy
+// wire [2:0] cpu_hburst; //changed by agy
+// wire [3:0] cpu_hprot; //changed by agy
 
 // assign cpu_hbusreq; // CPU always requests the bus?
 // assign cpu_hlock;   // No locked transfers for now
@@ -81,13 +83,13 @@ wire [31:0] cpu_mem_rdata;
 // Arbiter wires
 
 wire [14:0] mst_hbusreq;   // [i] = master i hbusreq
-wire [14:0] mst_hlock;
+// wire [14:0] mst_hlock; //changed by agy
 wire [14:0][1:0]  mst_htrans;    //changed by agy
 wire [14:0][31:0] mst_haddr;     //changed by agy
 wire [14:0] mst_hwrite;
 wire [14:0][2:0]  mst_hsize;     //changed by agy
-wire [14:0][2:0]  mst_hburst;    //changed by agy
-wire [14:0][3:0]  mst_hprot;     //changed by agy
+// wire [14:0][2:0]  mst_hburst;    //changed by agy
+// wire [14:0][3:0]  mst_hprot;     //changed by agy
 wire [14:0][31:0] mst_hwdata;    //changed by agy
 
 // Master inputs (what arbiter feeds back to each master)
@@ -102,18 +104,18 @@ wire [31:0]         slv_haddr_out;
 wire                slv_hwrite_out;
 wire [1:0]          slv_htrans_out;
 wire [2:0]          slv_hsize_out;
-wire [2:0]          slv_hburst_out;
-wire [3:0]          slv_hprot_out;
+// wire [2:0]          slv_hburst_out; //changed by agy
+// wire [3:0]          slv_hprot_out; //changed by agy
 wire [31:0]         slv_hwdata_out;
-wire [3:0]          slv_hmaster_out;
-wire                slv_hmastlock_out;
+// wire [3:0]          slv_hmaster_out; //changed by agy
+// wire                slv_hmastlock_out; //changed by agy
 wire                slv_hready_in;  // hready fed into slaves
 
 // Slave outputs (what each slave drives back)
 wire [NUM_SLVS-1:0] slv_hready_in_v;
 wire [14:0][1:0]          slv_hresp_v;  //changed by agy
 wire [14:0][31:0]         slv_hrdata_v; //changed by agy
-wire [14:0][15:0]         slv_hsplit_v; //changed by agy
+// wire [14:0][15:0]         slv_hsplit_v; //changed by agy
 
 
 //AHB to APB bridge wires
@@ -200,26 +202,26 @@ wire [1:0]  boot_rom_HRESP;
 // assign mst_hwdata = {14'b0, cpu_hwdata};
 
 assign mst_hbusreq[0] = cpu_hbusreq;        //CPU sending to the arbiter
-assign mst_hlock[0] = cpu_hlock;
+// assign mst_hlock[0] = cpu_hlock; //changed by agy
 assign mst_htrans[0] = cpu_htrans; //changed by agy
 assign mst_haddr[0] = cpu_haddr;
 assign mst_hwrite[0] = cpu_hwrite;
 assign mst_hsize[0] = cpu_hsize;
-assign mst_hburst[0] = cpu_hburst;
-assign mst_hprot[0] = cpu_hprot;
+// assign mst_hburst[0] = cpu_hburst; //changed by agy
+// assign mst_hprot[0] = cpu_hprot; //changed by agy
 assign mst_hwdata[0] = cpu_hwdata;
 
 generate
     genvar i;
     for(i = 1; i<15; i = i+1) begin
         assign mst_hbusreq[i] = 1'b0;
-        assign mst_hlock[i] = 1'b0;
+//         assign mst_hlock[i] = 1'b0; //changed by agy
         assign mst_htrans[i] = 2'b00; //changed by agy
         assign mst_haddr[i] = 1'b0;
         assign mst_hwrite[i] = 1'b0;
         assign mst_hsize[i] = 1'b0;
-        assign mst_hburst[i] = 1'b0;
-        assign mst_hprot[i] = 1'b0;
+//         assign mst_hburst[i] = 1'b0; //changed by agy
+//         assign mst_hprot[i] = 1'b0; //changed by agy
         assign mst_hwdata[i] = 1'b0;
     end
 endgenerate
@@ -259,16 +261,16 @@ wire [31:0] fft_HADDR;
 wire [1:0]  fft_HTRANS;
 wire        fft_HWRITE;
 wire [2:0]  fft_HSIZE;
-wire [2:0]  fft_HBURST;
+// wire [2:0]  fft_HBURST; //changed by agy
 wire [31:0] fft_HWDATA;
-wire [3:0]  fft_HPROT;
+// wire [3:0]  fft_HPROT; //changed by agy
 wire        fft_HREADY;
-wire [3:0]  fft_HMASTER;
-wire        fft_HMASTLOCK;
+// wire [3:0]  fft_HMASTER; //changed by agy
+// wire        fft_HMASTLOCK; //changed by agy
 wire        fft_HREADYOUT;
 wire [1:0]  fft_HRESP;
 wire [31:0] fft_HRDATA;
-wire [15:0] fft_HSPLIT;
+// wire [15:0] fft_HSPLIT; //changed by agy
 wire        fft_irq;
 
 assign fft_HSEL      = slv_hsel[3];
@@ -276,12 +278,12 @@ assign fft_HADDR     = slv_haddr_out;
 assign fft_HTRANS    = slv_htrans_out;
 assign fft_HWRITE    = slv_hwrite_out;
 assign fft_HSIZE     = slv_hsize_out;
-assign fft_HBURST    = slv_hburst_out;
+// assign fft_HBURST    = slv_hburst_out; //changed by agy
 assign fft_HWDATA    = slv_hwdata_out;
-assign fft_HPROT     = slv_hprot_out;
+// assign fft_HPROT     = slv_hprot_out; //changed by agy
 assign fft_HREADY    = slv_hready_in;
-assign fft_HMASTER   = slv_hmaster_out;
-assign fft_HMASTLOCK = slv_hmastlock_out;
+// assign fft_HMASTER   = slv_hmaster_out; //changed by agy
+// assign fft_HMASTLOCK = slv_hmastlock_out; //changed by agy
 
 // Slave 4: Scratchpad RAM connections
 wire        scratch_HSEL;
@@ -289,9 +291,9 @@ wire [31:0] scratch_HADDR;
 wire [1:0]  scratch_HTRANS;
 wire        scratch_HWRITE;
 wire [2:0]  scratch_HSIZE;
-wire [2:0]  scratch_HBURST;
+// wire [2:0]  scratch_HBURST; //changed by agy
 wire [31:0] scratch_HWDATA;
-wire [3:0]  scratch_HPROT;
+// wire [3:0]  scratch_HPROT; //changed by agy
 wire        scratch_HREADY;
 wire        scratch_HREADYOUT;
 wire [1:0]  scratch_HRESP;
@@ -302,9 +304,9 @@ assign scratch_HADDR  = slv_haddr_out;
 assign scratch_HTRANS = slv_htrans_out;
 assign scratch_HWRITE = slv_hwrite_out;
 assign scratch_HSIZE  = slv_hsize_out;
-assign scratch_HBURST = slv_hburst_out;
+// assign scratch_HBURST = slv_hburst_out; //changed by agy
 assign scratch_HWDATA = slv_hwdata_out;
-assign scratch_HPROT  = slv_hprot_out;
+// assign scratch_HPROT  = slv_hprot_out; //changed by agy
 assign scratch_HREADY = slv_hready_in;
 
 // Slave 5: IFFT Wrapper connections
@@ -313,16 +315,16 @@ wire [31:0] ifft_HADDR;
 wire [1:0]  ifft_HTRANS;
 wire        ifft_HWRITE;
 wire [2:0]  ifft_HSIZE;
-wire [2:0]  ifft_HBURST;
+// wire [2:0]  ifft_HBURST; //changed by agy
 wire [31:0] ifft_HWDATA;
-wire [3:0]  ifft_HPROT;
+// wire [3:0]  ifft_HPROT; //changed by agy
 wire        ifft_HREADY;
-wire [3:0]  ifft_HMASTER;
-wire        ifft_HMASTLOCK;
+// wire [3:0]  ifft_HMASTER; //changed by agy
+// wire        ifft_HMASTLOCK; //changed by agy
 wire        ifft_HREADYOUT;
 wire [1:0]  ifft_HRESP;
 wire [31:0] ifft_HRDATA;
-wire [15:0] ifft_HSPLIT;
+// wire [15:0] ifft_HSPLIT; //changed by agy
 wire        ifft_irq;
 
 assign ifft_HSEL      = slv_hsel[5];
@@ -330,12 +332,12 @@ assign ifft_HADDR     = slv_haddr_out;
 assign ifft_HTRANS    = slv_htrans_out;
 assign ifft_HWRITE    = slv_hwrite_out;
 assign ifft_HSIZE     = slv_hsize_out;
-assign ifft_HBURST    = slv_hburst_out;
+// assign ifft_HBURST    = slv_hburst_out; //changed by agy
 assign ifft_HWDATA    = slv_hwdata_out;
-assign ifft_HPROT     = slv_hprot_out;
+// assign ifft_HPROT     = slv_hprot_out; //changed by agy
 assign ifft_HREADY    = slv_hready_in;
-assign ifft_HMASTER   = slv_hmaster_out;
-assign ifft_HMASTLOCK = slv_hmastlock_out;
+// assign ifft_HMASTER   = slv_hmaster_out; //changed by agy
+// assign ifft_HMASTLOCK = slv_hmastlock_out; //changed by agy
 assign i2s_PWRITE = bridge_p_write; // From bridge to APB slave
 assign i2s_PWDATA = bridge_p_wdata; // From bridge to APB slave
 assign i2s_PADDR = bridge_p_addr;   // From bridge to APB slave
@@ -371,32 +373,32 @@ assign bridge_p_rdata =     (i2s_PSEL) ? i2s_PRDATA: // From APB slave to bridge
 assign slv_hrdata_v[0] = bridge_h_rdata; // To arbiter (only from slave 0) 
 assign slv_hresp_v[0] = {1'b0, bridge_h_resp}; // To arbiter (only from slave 0)
 assign slv_hready_in_v[0] = bridge_h_ready_out; // To arbiter (only from slave 0)
-assign slv_hsplit_v[0] = 0; // No splits for now
+// assign slv_hsplit_v[0] = 0; // No splits for now //changed by agy
 
 assign slv_hrdata_v[1] = sram_HRDATA; // To arbiter (only from slave 1)
 assign slv_hresp_v[1] = 2'b00; // OKAY response
 assign slv_hready_in_v[1] = sram_HREADYOUT; // Ready from SRAM
-assign slv_hsplit_v[1] = 0; // No splits for now
+// assign slv_hsplit_v[1] = 0; // No splits for now //changed by agy
 
 assign slv_hrdata_v[2] = boot_rom_HRDATA; // To arbiter (only from slave 2)
 assign slv_hresp_v[2] = boot_rom_HRESP; // From boot ROM
 assign slv_hready_in_v[2] = boot_rom_HREADYOUT; // From boot ROM
-assign slv_hsplit_v[2] = 0; // No splits for
+// assign slv_hsplit_v[2] = 0; // No splits for //changed by agy
 
 assign slv_hrdata_v[3] = fft_HRDATA; // To arbiter (only from slave 3)
 assign slv_hresp_v[3] = fft_HRESP;
 assign slv_hready_in_v[3] = fft_HREADYOUT;
-assign slv_hsplit_v[3] = fft_HSPLIT;
+// assign slv_hsplit_v[3] = fft_HSPLIT; //changed by agy
 
 assign slv_hrdata_v[4] = scratch_HRDATA; // To arbiter (only from slave 4)
 assign slv_hresp_v[4] = scratch_HRESP;
 assign slv_hready_in_v[4] = scratch_HREADYOUT;
-assign slv_hsplit_v[4] = 16'b0;
+// assign slv_hsplit_v[4] = 16'b0; //changed by agy
 
 assign slv_hrdata_v[5] = ifft_HRDATA; // To arbiter (only from slave 5)
 assign slv_hresp_v[5] = ifft_HRESP;
 assign slv_hready_in_v[5] = ifft_HREADYOUT;
-assign slv_hsplit_v[5] = ifft_HSPLIT;
+// assign slv_hsplit_v[5] = ifft_HSPLIT; //changed by agy
 
 generate
    genvar j;
@@ -404,7 +406,7 @@ generate
         assign slv_hrdata_v[j] = 0;
         assign slv_hresp_v[j] = 0;
         // assign slv_hready_in_v[j] = 0;
-        assign slv_hsplit_v[j] = 0;
+//         assign slv_hsplit_v[j] = 0; //changed by agy
     end
 
 endgenerate
@@ -430,19 +432,18 @@ pico_to_ahb wrapper( .clk(clk), .resetn(rstn),
     .mem_wdata(cpu_mem_wdata), .mem_wstrb(cpu_mem_wstrb), .mem_rdata(cpu_mem_rdata),
 
     .mst_haddr(cpu_haddr), .mst_htrans(cpu_htrans), .mst_hsize(cpu_hsize), .mst_hwrite(cpu_hwrite), .mst_hwdata(cpu_hwdata),
-    .mst_hready_out(cpu_hready), .mst_hrdata_out(cpu_hrdata), .mst_hresp_out(cpu_hresp), .mst_hbusreq(cpu_hbusreq),
-    .mst_hlock(cpu_hlock), .mst_hburst(cpu_hburst), .mst_hprot(cpu_hprot), .mst_hgrant(cpu_hgrant)
+    .mst_hready_out(cpu_hready), .mst_hrdata_out(cpu_hrdata), .mst_hresp_out(cpu_hresp), .mst_hbusreq(cpu_hbusreq)
+//     .mst_hlock(cpu_hlock), .mst_hburst(cpu_hburst), .mst_hprot(cpu_hprot), .mst_hgrant(cpu_hgrant) //changed by agy
      );
 
 
 // Other masters (if any) would be assigned here
 
-ahb_arbiter #(
-    .NUM_ARB(0),
-    .NUM_ARB_MSTS(1),
-    .DEF_ARB_MST(0),
+ahb_decoder_and_arbiter #(
+    .NUM_ARB_MSTS(NUM_ARB_MSTS),
+    .DEF_ARB_MST(DEF_ARB_MST),
     .NUM_SLVS(NUM_SLVS),
-    .ALG_NUMBER(1),            //Round Robin
+
     .ADDR_LOW_FLAT({320'b0, 32'h6000_0000, 32'h5000_0000, 32'h4000_0000, 32'h0000_0000, 32'h3000_0000, 32'h2000_0000}),//ifft, scratchpad, fft, bootrom, sram, apbbridge
     .ADDR_HIGH_FLAT({320'b0, 32'h6000_0FFF, 32'h5000_3FFF, 32'h4000_0FFF, 32'h0000_FFFF, 32'h3000_FFFF, 32'h200F_FFFF})
 ) 
@@ -450,43 +451,34 @@ arbiter
 (
     .hclk(clk),
     .hresetn(rstn),
-    .remap(remap),
 
     // Master interface
     .mst_hbusreq(mst_hbusreq),
-    .mst_hlock(mst_hlock),
-    .mst_haddr(mst_haddr),
-    .mst_hsize(mst_hsize),
     .mst_htrans(mst_htrans),
+    .mst_haddr(mst_haddr),
     .mst_hwrite(mst_hwrite),
-    .mst_hburst(mst_hburst),
-    .mst_hprot(mst_hprot),
     .mst_hwdata(mst_hwdata),
+    .mst_hsize(mst_hsize),
 
     // Slave interface
     .slv_hsel(slv_hsel),
-    .slv_haddr_out(slv_haddr_out),
-    .slv_hwrite_out(slv_hwrite_out),
-    .slv_htrans_out(slv_htrans_out),
-    .slv_hsize_out(slv_hsize_out),
-    .slv_hburst_out(slv_hburst_out),
-    .slv_hprot_out(slv_hprot_out),
-    .slv_hwdata_out(slv_hwdata_out),
-    .slv_hmaster_out(slv_hmaster_out),
-    .slv_hmastlock_out(slv_hmastlock_out),
-    .slv_hready_in(slv_hready_in),
+    .hready(slv_hready_in),
+    .sel_haddr(slv_haddr_out),
+    .sel_hwdata(slv_hwdata_out),
+    .sel_hwrite(slv_hwrite_out),
+    .sel_hsize(slv_hsize_out),
+    .sel_htrans(slv_htrans_out),
 
 // Feedback from slaves to arbiter
     .slv_hready_in_v(slv_hready_in_v),
-    .slv_hresp_v(slv_hresp_v),
-    .slv_hrdata_v(slv_hrdata_v),
-    .slv_hsplit_v(slv_hsplit_v),
+    .slv_hresp(slv_hresp_v),
+    .slv_hrdata(slv_hrdata_v),
 
     // Outputs to masters
     .mst_hgrant(mst_hgrant),
-    .mst_hready_out(mst_hready_out),
-    .mst_hresp_out(mst_hresp_out),
-    .mst_hrdata_out(mst_hrdata_out)
+    .slv_hready_mux(mst_hready_out),
+    .slv_hresp_mux(mst_hresp_out),
+    .slv_hrdata_mux(mst_hrdata_out)
 );
 
 AHB_to_APB_Bridge #(
@@ -637,17 +629,17 @@ boot_rom_ahb boot_rom (
         .slv_hwrite(fft_HWRITE),
         .slv_htrans(fft_HTRANS),
         .slv_hsize(fft_HSIZE),
-        .slv_hburst(fft_HBURST),
+//         .slv_hburst(fft_HBURST), //changed by agy
         .slv_hwdata(fft_HWDATA),
-        .slv_hprot(fft_HPROT),
+//         .slv_hprot(fft_HPROT), //changed by agy
         .slv_hready(fft_HREADY),
-        .slv_hmaster(fft_HMASTER),
-        .slv_hmastlock(fft_HMASTLOCK),
+//         .slv_hmaster(fft_HMASTER), //changed by agy
+//         .slv_hmastlock(fft_HMASTLOCK), //changed by agy
         
         .slv_hready_out(fft_HREADYOUT),
         .slv_hresp(fft_HRESP),
         .slv_hrdata(fft_HRDATA),
-        .slv_hsplit(fft_HSPLIT),
+//         .slv_hsplit(fft_HSPLIT), //changed by agy
         .slv_err(),
         
         .fft_irq(fft_irq),
@@ -734,17 +726,17 @@ boot_rom_ahb boot_rom (
         .slv_hwrite(ifft_HWRITE),
         .slv_htrans(ifft_HTRANS),
         .slv_hsize(ifft_HSIZE),
-        .slv_hburst(ifft_HBURST),
+//         .slv_hburst(ifft_HBURST), //changed by agy
         .slv_hwdata(ifft_HWDATA),
-        .slv_hprot(ifft_HPROT),
+//         .slv_hprot(ifft_HPROT), //changed by agy
         .slv_hready(ifft_HREADY),
-        .slv_hmaster(ifft_HMASTER),
-        .slv_hmastlock(ifft_HMASTLOCK),
+//         .slv_hmaster(ifft_HMASTER), //changed by agy
+//         .slv_hmastlock(ifft_HMASTLOCK), //changed by agy
         
         .slv_hready_out(ifft_HREADYOUT),
         .slv_hresp(ifft_HRESP),
         .slv_hrdata(ifft_HRDATA),
-        .slv_hsplit(ifft_HSPLIT),
+//         .slv_hsplit(ifft_HSPLIT), //changed by agy
         .slv_err(),
         
         .ifft_irq(ifft_irq),

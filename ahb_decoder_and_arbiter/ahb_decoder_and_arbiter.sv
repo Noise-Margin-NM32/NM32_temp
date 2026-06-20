@@ -38,7 +38,7 @@ module ahb_decoder_and_arbiter #(
     // Slave Interfaces (Outputs from Interconnect Matrix down to Slaves)
     // -----------------------------------------------------------------------
     output wire [NUM_SLVS-1:0]  slv_hsel,        // Decoded peripheral select lines for each slave
-    output wire                 hready,    // Interconnect-wide central pipeline stall signal
+    output wire                 hready,          // Interconnect-wide central pipeline stall signal
     output wire [31:0]          sel_haddr,       // Multiplexed downstream address bus
     output wire [31:0]          sel_hwdata,      // Multiplexed downstream write data bus
     output wire                 sel_hwrite,      // Multiplexed downstream read/write command flag

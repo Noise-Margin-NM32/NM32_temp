@@ -34,9 +34,11 @@ module EF_I2S_APB #(
     input  wire [ 31:0] PADDR,
     input  wire         PENABLE,
     input  wire         PSEL,
+
     output wire         PREADY,
     output wire [ 31:0] PRDATA,
     output wire         IRQ,
+    
     input  wire [1-1:0] ws,
     input  wire [1-1:0] sck,
     input  wire [1-1:0] sdi

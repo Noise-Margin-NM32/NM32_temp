@@ -3,3 +3,13 @@
     <Process Command="vivado" Owner="omkar" Host="omkar-Victus-by-HP-Gaming-Laptop-15-fa0xxx" Pid="16362" HostCore="16" HostMemory="16029740">
     </Process>
 </ProcessHandle>
+<?xml version="1.0"?>
+<ProcessHandle Version="1" Minor="0">
+    <Process Command="vivado" Owner="omkar" Host="omkar-Victus-by-HP-Gaming-Laptop-15-fa0xxx" Pid="7697" HostCore="16" HostMemory="16029680">
+    </Process>
+</ProcessHandle>
+<?xml version="1.0"?>
+<ProcessHandle Version="1" Minor="0">
+    <Process Command="vivado" Owner="omkar" Host="omkar-Victus-by-HP-Gaming-Laptop-15-fa0xxx" Pid="11030" HostCore="16" HostMemory="16029680">
+    </Process>
+</ProcessHandle>

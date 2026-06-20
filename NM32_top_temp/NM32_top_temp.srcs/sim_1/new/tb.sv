@@ -7,6 +7,7 @@ module tb;
     // ---------------------------------------------------------
     reg clk;
     reg rstn;
+    reg pclk;
 
     // ---------------------------------------------------------
     // 2. Loopback Wires
@@ -29,7 +30,7 @@ module tb;
     assign sdi = sdi_reg;
 
     initial begin
-        $readmemh("/home/omkar/NM32_temp/audio_in.txt", audio_in_mem);
+        $readmemh("./../../../../../firmware/audio_in.txt", audio_in_mem);
     end
 
     // Robust Synchronous I2S Serializer
@@ -61,7 +62,7 @@ module tb;
     // ---------------------------------------------------------
     nm32_top dut (
         .clk(clk),
-        .pclk(clk), // Assuming peripheral clock is the same as system clock
+        .pclk(pclk), // Assuming peripheral clock is the same as system clock
         .rstn(rstn),
         
         // I2S RX Ports (Listening)
@@ -76,12 +77,19 @@ module tb;
     );
 
     // ---------------------------------------------------------
-    // 4. Clock Generation (100MHz)
+    // 4. Clock Generation (200MHz)HCLK + 100MHz PCLK
     // ---------------------------------------------------------
     initial begin
         clk = 0;
+        // pclk = 0;
         // The #5 delay prevents the SIGSEGV crash! (10ns period = 100MHz)
-        forever #5 clk = ~clk; 
+        forever #2.5 clk = ~clk; 
+        // forever #5 pclk = ~pclk;
+    end
+
+    initial begin
+        pclk = 0;
+        forever #5 pclk = ~pclk;
     end
 
     // ---------------------------------------------------------
@@ -92,7 +100,7 @@ module tb;
         rstn = 0;
         
         // Wait 100ns, then release reset
-        #100;
+     #100;
         rstn = 1;
 
         // --- SAFETY TIMEOUT ---
@@ -154,25 +162,25 @@ module tb;
     end
 
     // Monitor APB bridge transactions
-    always @(posedge clk) begin
-        if (dut.bridge.p_selx || dut.bridge.p_enable || dut.bridge.current_state != 0) begin
-            $display("Time=%0t: [BRIDGE] state=%d sel=%b en=%b addr=0x%08h wdata=0x%08h rdata=0x%08h write=%b h_ready_out=%b h_rdata=0x%08h rx_fifo_rdata=0x%08h rx_empty=%b rx_fifo_rd=%b",
-                $time,
-                dut.bridge.current_state,
-                dut.bridge.p_selx,
-                dut.bridge.p_enable,
-                dut.bridge.p_addr,
-                dut.bridge.p_wdata,
-                dut.bridge.p_rdata,
-                dut.bridge.p_write,
-                dut.bridge.h_ready_out,
-                dut.bridge.h_rdata,
-                dut.i2s_apb.instance_to_wrap.fifo_rdata,
-                dut.i2s_apb.instance_to_wrap.fifo_empty,
-                dut.i2s_apb.instance_to_wrap.fifo_rd
-            );
-        end
-    end
+    // always @(posedge clk) begin
+    //     if (dut.bridge.p_selx || dut.bridge.p_enable || dut.bridge.current_state != 0) begin
+    //         $display("Time=%0t: [BRIDGE] state=%d sel=%b en=%b addr=0x%08h wdata=0x%08h rdata=0x%08h write=%b h_ready_out=%b h_rdata=0x%08h rx_fifo_rdata=0x%08h rx_empty=%b rx_fifo_rd=%b",
+    //             $time,
+    //             dut.bridge.current_state,
+    //             dut.bridge.p_selx,
+    //             dut.bridge.p_enable,
+    //             dut.bridge.p_addr,
+    //             dut.bridge.p_wdata,
+    //             dut.bridge.p_rdata,
+    //             dut.bridge.p_write,
+    //             dut.bridge.h_ready_out,
+    //             dut.bridge.h_rdata,
+    //             dut.i2s_apb.instance_to_wrap.fifo_rdata,
+    //             dut.i2s_apb.instance_to_wrap.fifo_empty,
+    //             dut.i2s_apb.instance_to_wrap.fifo_rd
+    //         );
+    //     end
+    // end
 
     // ---------------------------------------------------------
     // 6b. Cycle-by-Cycle CPU-AHB Debug Tracer

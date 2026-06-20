@@ -10,9 +10,6 @@ __pycache__/
 *.bin
 *.elf
 *.hex
-fft_out.txt
-ifft_out.txt
-audio_in.txt
 *.cache/
 *.sim/
 *.log

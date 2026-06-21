@@ -125,7 +125,7 @@ wire [31:0]         slv_hwdata_out;
 wire                slv_hready_in;  // hready fed into slaves
 
 // Slave outputs (what each slave drives back)
-wire [NUM_SLVS-1:0] slv_hready_in_v;
+wire [NUM_SLVS-1:0]               slv_hready_in_v;
 wire [NUM_SLVS-1:0][1:0]          slv_hresp_v;  //changed by agy
 wire [NUM_SLVS-1:0][31:0]         slv_hrdata_v; //changed by agy
 // wire [14:0][15:0]         slv_hsplit_v; //changed by agy
@@ -350,7 +350,8 @@ assign i2s_PWDATA = bridge_p_wdata; // From bridge to APB slave
 assign i2s_PADDR = bridge_p_addr;   // From bridge to APB slave
 assign i2s_PENABLE = bridge_p_enable; // From bridge to APB slave
 assign i2s_PSEL = bridge_p_selx[0]; // Assuming I2S is APB slave 0
-assign i2s_PREADY = bridge_p_ready[0]; // From bridge to APB slave
+assign bridge_p_ready[0] = i2s_PREADY; // From bridge to APB slave
+assign bridge_p_rdata[0] = i2s_PRDATA; // From bridge to APB slave
 
 
 
@@ -360,13 +361,15 @@ assign i2s_tx_PWDATA = bridge_p_wdata; // From bridge to APB slave
 assign i2s_tx_PADDR = bridge_p_addr;   // From bridge to APB slave
 assign i2s_tx_PENABLE = bridge_p_enable; // From bridge to APB slave
 assign i2s_tx_PSEL = bridge_p_selx[1]; // Assuming I2S TX is APB slave 1
-assign i2s_tx_PREADY = bridge_p_ready[1]; // From bridge to APB slave
+assign bridge_p_ready[1] = i2s_tx_PREADY; // From bridge to APB slave
+assign bridge_p_rdata[1] = i2s_tx_PRDATA; // From bridge to APB slave
 
 generate
     genvar idx;
     for(idx = 2; idx < 4; idx = idx + 1) begin
         assign bridge_p_selx[idx] = 32'b0; // No more APB slaves for now
-        assign bridge_p_ready[idx] = 1'b1; // Tie ready high for non-existent slaves
+        assign bridge_p_ready[idx] = 1'b0; // Tie ready high for non-existent slaves
+        assign bridge_p_rdata[idx] = 32'b0; // Tie data to 0 for non-existent slaves
     end
 endgenerate
 

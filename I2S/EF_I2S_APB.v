@@ -280,7 +280,7 @@ module EF_I2S_APB #(
 			(PADDR[16-1:0] == GCLK_REG_OFFSET)	? GCLK_REG :
 			32'hDEADBEEF;
 
-  assign PREADY = 1'b1;
+  assign PREADY = PSEL & PENABLE & PCLK;
 
   assign RXDATA_WIRE = fifo_rdata;
   assign fifo_rd = (apb_re & (PADDR[16-1:0] == RXDATA_REG_OFFSET));

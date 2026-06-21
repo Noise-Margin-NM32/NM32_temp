@@ -211,7 +211,7 @@ module tb;
     always @(posedge clk) begin
         // The firmware writes to SRAM_BASE + 0x0F00 for handshake
         // Since SRAM_BASE is the main CPU memory, we check the AHB signals.
-        if (dut.sram_HWRITE && dut.sram_HSEL && dut.sram_HREADY && dut.sram_HADDR == 32'h30000F00) begin
+        if (dut.sram_HWRITE && dut.sram_HREADY && dut.sram_HADDR == 32'h30000F00) begin
             if (dut.sram_HWDATA == 32'h11111111 || 
                 dut.sram_HWDATA == 32'h22222222 || 
                 dut.sram_HWDATA == 32'h33333333 || 

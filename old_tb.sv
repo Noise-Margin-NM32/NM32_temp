@@ -61,7 +61,6 @@ module tb;
     // ---------------------------------------------------------
     nm32_top dut (
         .clk(clk),
-        .pclk(clk), // Assuming peripheral clock is the same as system clock
         .rstn(rstn),
         
         // I2S RX Ports (Listening)
@@ -155,10 +154,10 @@ module tb;
 
     // Monitor APB bridge transactions
     always @(posedge clk) begin
-        if (dut.bridge.p_selx || dut.bridge.p_enable || dut.bridge.current_state != 0) begin
+        if (dut.bridge.p_selx || dut.bridge.p_enable || dut.bridge.state != 0) begin
             $display("Time=%0t: [BRIDGE] state=%d sel=%b en=%b addr=0x%08h wdata=0x%08h rdata=0x%08h write=%b h_ready_out=%b h_rdata=0x%08h rx_fifo_rdata=0x%08h rx_empty=%b rx_fifo_rd=%b",
                 $time,
-                dut.bridge.current_state,
+                dut.bridge.state,
                 dut.bridge.p_selx,
                 dut.bridge.p_enable,
                 dut.bridge.p_addr,

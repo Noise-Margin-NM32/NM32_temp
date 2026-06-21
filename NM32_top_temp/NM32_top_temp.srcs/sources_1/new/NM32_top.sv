@@ -23,15 +23,30 @@
 
 module nm32_top(
     input wire clk,
-    input wire pclk, // For APB peripherals
     input wire rstn,
     input wire [1-1:0] rx_ws,
     input wire [1-1:0] rx_sck,
     output wire [1-1:0] tx_ws,
     output wire [1-1:0] tx_sck,
     input wire [1-1:0] sdi,
-    output wire [1-1:0] sdo
+    output wire [1-1:0] sdo,
+    // SPI Master Ports
+    output wire spi_clk,
+    output wire [3:0] spi_csn,
+    output wire [1:0] spi_mode,
+    output wire [3:0] spi_sdo,
+    input wire [3:0] spi_sdi
 );
+
+// Internal clock generation for pclk (hclk / 2)
+reg pclk_reg;
+always @(posedge clk or negedge rstn) begin
+    if (!rstn)
+        pclk_reg <= 1'b0;
+    else
+        pclk_reg <= ~pclk_reg;
+end
+wire pclk = pclk_reg;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////           Wires and Parameters           ////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -179,6 +194,13 @@ wire [1:0]  boot_rom_HRESP;
  wire         i2s_tx_PREADY;
  wire [ 31:0] i2s_tx_PRDATA;
  wire         i2s_tx_IRQ;
+
+ // SPI
+ wire         spi_PSEL;
+ wire         spi_PREADY;
+ wire [ 31:0] spi_PRDATA;
+ wire         spi_PSLVERR;
+ wire [ 1:0]  spi_events;
 
 //  wire [1-1:0] sdo;
 
@@ -351,9 +373,11 @@ assign i2s_tx_PENABLE = bridge_p_enable; // From bridge to APB slave
 //for psel
 assign i2s_PSEL = (bridge_p_addr[31:16] == 16'h2000) ? bridge_p_selx : 1'b0;    // From bridge to APB slave
 assign i2s_tx_PSEL = (bridge_p_addr[31:16] == 16'h2001) ? bridge_p_selx : 1'b0;    // From bridge to APB slave
+assign spi_PSEL = (bridge_p_addr[31:16] == 16'h2002) ? bridge_p_selx : 1'b0;    // From bridge to APB slave
 //for prdtata:
 assign bridge_p_rdata =     (i2s_PSEL) ? i2s_PRDATA: // From APB slave to bridge
                             (i2s_tx_PSEL) ? i2s_tx_PRDATA:  // From APB slave to bridge
+                            (spi_PSEL) ? spi_PRDATA: // From APB slave to bridge
                             32'b0; // Default to 0 if no slave selected
 
 //Temporary tie off to make i2s always ready, it must be changed after we  make a better bridge.
@@ -514,6 +538,7 @@ AHB_to_APB_Bridge #(
 bridge (
     //inputs
     .h_clk(clk),
+    .pclk(pclk), // ADDED PCLK
     .h_reset_n(rstn),
     .h_write(bridge_h_write), // From arbiter to bridge
     .h_sel_apb(bridge_h_sel_apb), // Assuming slave 0 is the APB bridge
@@ -614,6 +639,37 @@ EF_I2S_TX_APB #(.AW(i2s_AW), .DW(i2s_DW)) i2s_tx_apb (
     .sdo(sdo),
     .ws(tx_ws),
     .sck(tx_sck)
+);
+
+apb_spi_master #(
+    .BUFFER_DEPTH(10),
+    .APB_ADDR_WIDTH(12)
+) spi_master_inst (
+    .HCLK(pclk),
+    .HRESETn(rstn),
+    .PADDR(bridge_p_addr[11:0]),
+    .PWDATA(bridge_p_wdata),
+    .PWRITE(bridge_p_write),
+    .PSEL(spi_PSEL),
+    .PENABLE(bridge_p_enable),
+    .PRDATA(spi_PRDATA),
+    .PREADY(spi_PREADY),
+    .PSLVERR(spi_PSLVERR),
+    .events_o(spi_events),
+    .spi_clk(spi_clk),
+    .spi_csn0(spi_csn[0]),
+    .spi_csn1(spi_csn[1]),
+    .spi_csn2(spi_csn[2]),
+    .spi_csn3(spi_csn[3]),
+    .spi_mode(spi_mode),
+    .spi_sdo0(spi_sdo[0]),
+    .spi_sdo1(spi_sdo[1]),
+    .spi_sdo2(spi_sdo[2]),
+    .spi_sdo3(spi_sdo[3]),
+    .spi_sdi0(spi_sdi[0]),
+    .spi_sdi1(spi_sdi[1]),
+    .spi_sdi2(spi_sdi[2]),
+    .spi_sdi3(spi_sdi[3])
 );
 
 boot_rom_ahb boot_rom (

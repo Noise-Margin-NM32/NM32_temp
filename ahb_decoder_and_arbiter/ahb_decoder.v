@@ -44,11 +44,6 @@ module ahb_decoder #(
     //memory map decoding
     reg [NUM_SLVS-1:0] hsel_comb;
     reg [NUM_SLVS-1:0] r_slv_hsel;          // Registered version of slave select lines to track data phase slave
-    
-    // change by agy: variable to track the last active master/slave for the hready_mux
-    reg [NUM_SLVS-1:0] last_active_slave;
-    // change by agy: force a 1-cycle wait state at the start of the data phase
-    reg                force_wait_state;
     reg                def_slave_hsel_comb; // Combinatorial select signal for the default/unmapped slave space
     reg                def_slave_err_phase;   // Cycle 1 of AHB error handshake: hready=0, hresp=ERROR
     //        AHB requires hresp=ERROR on BOTH cycles of the error handshake..
@@ -64,16 +59,7 @@ module ahb_decoder #(
 
     always @(*) begin
         // Baseline fallbacks if no slave is active in the data phase
-        // slv_hready_mux = def_slave_hready; // change by agy
-        
-        // change by agy: use last active master/slave's ready as default
         slv_hready_mux = def_slave_hready;
-        for (i = 0; i < NUM_SLVS; i = i + 1) begin
-            if (last_active_slave[i]) begin
-                slv_hready_mux = slv_hready_in_v[i];
-            end
-        end
-
         slv_hrdata_mux = 32'h0;
         
         // FIX: Only let the default slave drive ERROR_RESP if no valid slave is selected
@@ -91,21 +77,13 @@ module ahb_decoder #(
                 slv_hrdata_mux = slv_hrdata_flat[32*i+:32];
             end
         end
-
-        // change by agy: drop hready immediately after address phase ends
-        if (force_wait_state) begin
-            slv_hready_mux = 1'b0;
-        end
     end
 
     //if any slave is selected, readiness of current slave = slv_hready_mux
     //else, readiness of slave = def_slave_hready
 // FIX: Prevents the default slave from deadlocking the bus during a valid data phase
-    // assign hready = (|r_slv_hsel) ? slv_hready_mux : 
-    //                       (def_slave_err_phase) ? def_slave_hready : 1'b1; // change by agy
-    // change by agy: allow hready to follow slv_hready_mux (which tracks last active slave) when idle
     assign hready = (|r_slv_hsel) ? slv_hready_mux : 
-                          (def_slave_err_phase) ? def_slave_hready : slv_hready_mux;
+                          (def_slave_err_phase) ? def_slave_hready : 1'b1;
     // -----------------------------------------------------------------------
     // AHB Decoder
     // -----------------------------------------------------------------------
@@ -132,22 +110,9 @@ module ahb_decoder #(
     always @(posedge hclk or negedge hresetn) begin
         if (!hresetn) begin
             r_slv_hsel       <= {NUM_SLVS{1'b0}};
-            last_active_slave <= {NUM_SLVS{1'b0}}; // change by agy
-            force_wait_state  <= 1'b0; // change by agy
         end
         else if (hready) begin
             r_slv_hsel       <= hsel_comb;
-            // change by agy: track last active master/slave
-            if (|hsel_comb) begin
-                last_active_slave <= hsel_comb;
-                // change by agy: trigger forced wait state for the next cycle (data phase)
-                force_wait_state <= 1'b1;
-            end else begin
-                force_wait_state <= 1'b0;
-            end
-        end else begin
-            // change by agy: release forced wait state after 1 cycle
-            force_wait_state <= 1'b0;
         end
     end
 

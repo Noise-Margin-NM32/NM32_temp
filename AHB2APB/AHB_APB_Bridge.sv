@@ -1,265 +1,164 @@
-
-// Peripheral map (one-hot slot → address range)
-//   PSEL[0] / PRDATA[0] / PREADY[0]  -  I2S RX  (0x8000_0000 - 0x8000_0FFF)
-//   PSEL[1] / PRDATA[1] / PREADY[1]  -  I2S TX  (0x8000_1000 - 0x8000_1FFF)
-//   PSEL[2] / PRDATA[2] / PREADY[2]  -  GPIO    (0x8000_2000 - 0x8000_2FFF)
-//   PSEL[3] / PRDATA[3] / PREADY[3]  -  WDT     (0x8800_0000 - 0x8BFF_FFFF)
-
-
-//IF new Slaves must be added, then update this file and NM32_top.sv (address map and port connections) accordingly. 
-//Also, update the parameter list in both files to include the new slave's base address and size.
-
 `timescale 1ns / 1ps
+`default_nettype wire
 
-module ahb_apb_bridge #(
-    parameter logic [31:0] I2S_RX_BASE = 32'h8000_0000,
-    parameter logic [31:0] I2S_RX_SIZE = 32'h0000_1000,   // 4 KB
+module AHB_to_APB_Bridge #(
+    parameter DATA_WIDTH = 32,
+    parameter ADDR_WIDTH = 32,
+    parameter TRAN_WIDTH = 3,
+    parameter NUM_APB_SLAVES = 1,
 
-    parameter logic [31:0] I2S_TX_BASE = 32'h8000_1000,
-    parameter logic [31:0] I2S_TX_SIZE = 32'h0000_1000,   // 4 KB
-
-    parameter logic [31:0] GPIO_BASE   = 32'h8000_2000,
-    parameter logic [31:0] GPIO_SIZE   = 32'h0000_1000,   // 4 KB
-
-    parameter logic [31:0] WDT_BASE    = 32'h8800_0000,
-    parameter logic [31:0] WDT_SIZE    = 32'h0400_0000     // 64 MB
+    parameter [NUM_APB_SLAVES-1:0][31:0] SLAVE_ADDR_START = 0,
+    parameter [NUM_APB_SLAVES-1:0][31:0] SLAVE_ADDR_END   = 0
 ) (
-    input  logic        Hclk,
-    input  logic        Pclk,
-    input  logic        Hresetn,
-    input  logic        HSEL,     
-    input  logic        Hwrite,
-    input  logic        Hreadyin,
-    input  logic [1:0]  Htrans,
-    input  logic [31:0] Haddr,
-    input  logic [31:0] Hwdata,
+    input   logic                       h_clk        ,
+    input   logic                       pclk         , // ADDED: APB clock
+    input   logic                       h_reset_n    ,
+    input   logic                       h_write      ,
+    input   logic                       h_sel_apb    , 
+    input   logic                       h_ready_in   ,
+    input   logic [TRAN_WIDTH - 1 : 0]  h_trans      ,
+    input   logic [DATA_WIDTH - 1 : 0]  h_wdata      ,
+    input   logic [DATA_WIDTH - 1 : 0]  h_addr       ,
+    input   logic [NUM_APB_SLAVES-1:0][DATA_WIDTH - 1 : 0]  p_rdata      ,
+    // input  logic [NUM_APB_SLAVES-1:0]  pready       ,
 
-    output logic        Hreadyout,
-    output logic [1:0]  Hresp,
-    output logic [31:0] Hrdata,
-
-    output logic        Penable,
-    output logic        Pwrite,
-    output logic [31:0] Paddr,
-    output logic [31:0] Pwdata,
-    output logic [3:0]  PSEL,  
+    output  logic                       h_resp       ,
+    output  logic                       h_ready_out  ,
+    output  logic                       p_enable     ,
+    output  logic                       p_write      ,
+    output  logic [NUM_APB_SLAVES-1:0]  p_selx       ,
+    output  logic [DATA_WIDTH - 1 : 0]  p_wdata      ,
+    output  logic [DATA_WIDTH - 1 : 0]  p_addr       ,
+    output  logic [DATA_WIDTH-1:0]  h_rdata      ,
     
-    input  logic [3:0][31:0] PRDATA,
-    input  logic [3:0]       PREADY  
+    input   logic [NUM_APB_SLAVES-1:0]  pready             
 );
-    logic [31:0] Haddr1, Haddr2;
-    logic        Hwritereg;
+    // reg [NUM_APB_SLAVES-1:0] slave_sel_mask;
 
-    always_ff @(posedge Hclk or negedge Hresetn) begin
-        if (!Hresetn) begin
-            Haddr1    <= 32'h0;
-            Haddr2    <= 32'h0;
-            Hwritereg <= 1'b0;
-        end else begin
-            Haddr1    <= Haddr;
-            Haddr2    <= Haddr1;
-            Hwritereg <= Hwrite;
+    logic [NUM_APB_SLAVES-1:0] decoded_sel;
+    reg [31:0] addr_low_tmp;
+    reg [31:0] addr_high_tmp;
+    integer i;
+
+    always @(*) begin
+        for (i = 0; i < NUM_APB_SLAVES; i = i + 1) begin
+            addr_low_tmp = SLAVE_ADDR_START[i];
+            addr_high_tmp = SLAVE_ADDR_END[i];
+            if(p_addr >= addr_low_tmp && p_addr <= addr_high_tmp)begin
+                p_selx[i] = 1'b1;
+            end else begin
+                p_selx[i] = 1'b0;
+            end
         end
     end
-
-    // valid: a real AHB transaction is on the bus AND the arbiter selected us.
-    logic valid;
-    always_comb begin
-        valid = Hresetn && HSEL && Hreadyin &&
-                (Htrans == 2'b10 || Htrans == 2'b11);  
-    end
-
-    // FIXED: Clean edge-detection mechanism without multi-driver conflicts
-    logic rise_pclk;
-    logic pclk_last;
     
-    always_ff @(posedge Hclk or negedge Hresetn) begin
-        if (!Hresetn) begin
-            pclk_last <= 1'b0;
-        end else begin
-            pclk_last <= Pclk;
-        end
-    end
+    // assign p_selx = (state == SETUP || state == ACCESS) ? decoded_sel : '0;
 
-    assign rise_pclk = (Pclk && ~pclk_last);
 
-    localparam logic [31:0] I2S_RX_HIGH = I2S_RX_BASE + I2S_RX_SIZE;
-    localparam logic [31:0] I2S_TX_HIGH = I2S_TX_BASE + I2S_TX_SIZE;
-    localparam logic [31:0] GPIO_HIGH   = GPIO_BASE   + GPIO_SIZE;
-    localparam logic [31:0] WDT_HIGH    = WDT_BASE    + WDT_SIZE;
+    logic valid;
+    assign valid = (h_sel_apb && (h_trans == 2'b10 || h_trans == 2'b11));
 
-    logic [3:0] tempselx;   
-    always_comb begin
-        tempselx = 4'b0000;
-        if (Hresetn) begin
-            if      (Haddr >= I2S_RX_BASE && Haddr < I2S_RX_HIGH) tempselx = 4'b0001;
-            else if (Haddr >= I2S_TX_BASE && Haddr < I2S_TX_HIGH) tempselx = 4'b0010;
-            else if (Haddr >= GPIO_BASE   && Haddr < GPIO_HIGH)   tempselx = 4'b0100;
-            else if (Haddr >= WDT_BASE    && Haddr < WDT_HIGH)    tempselx = 4'b1000;
-        end
-    end
-
-    assign Hresp = 2'b00;  
+    logic pclk_d;
+    always_ff @(posedge h_clk) pclk_d <= pclk;
+    wire pclk_fall = (pclk == 0 && pclk_d == 1);
 
     typedef enum logic [2:0] {
-        ST_IDLE     = 3'b000,
-        ST_WWAIT    = 3'b001,
-        ST_ENABLE_R = 3'b010,
-        ST_SETUP_W  = 3'b011,
-        ST_ENABLE_W = 3'b100
+        IDLE,
+        LATCH,
+        SETUP,
+        ACCESS
     } state_t;
 
-    state_t PRESENT_STATE, NEXT_STATE;
+    state_t state, next_state;
 
-    logic [3:0]  Pselx;
-    logic [31:0] Prdata_mux;
-    logic        Pready_mux;
+    logic [ADDR_WIDTH-1:0] addr_reg;
+    logic                  write_reg;
+    logic [DATA_WIDTH-1:0] wdata_reg;
 
-    always_ff @(posedge Hclk or negedge Hresetn) begin
-        if (!Hresetn) PRESENT_STATE <= ST_IDLE;
-        else          PRESENT_STATE <= NEXT_STATE;
-    end
-
-    always_comb begin : NSL
-        case (PRESENT_STATE)
-            ST_IDLE: begin
-                if      (~valid)            NEXT_STATE = ST_IDLE;
-                else if (valid &&  Hwrite)  NEXT_STATE = ST_WWAIT;
-                else                        NEXT_STATE = ST_ENABLE_R;
-            end
-
-            ST_WWAIT: NEXT_STATE = ST_SETUP_W;  
-
-            ST_ENABLE_R: begin
-                if      (~Pready_mux || ~rise_pclk) NEXT_STATE = ST_ENABLE_R; 
-                else if (~valid)                  NEXT_STATE = ST_IDLE;
-                else if (valid &&  Hwrite)        NEXT_STATE = ST_WWAIT;
-                else                              NEXT_STATE = ST_ENABLE_R;
-            end
-
-            // FIXED: Gated Setup phase to guarantee PSEL rises a full Pclk cycle before PENABLE
-            ST_SETUP_W: begin
-                if (~rise_pclk) NEXT_STATE = ST_SETUP_W;
-                else            NEXT_STATE = ST_ENABLE_W;
-            end   
-
-            ST_ENABLE_W: begin
-                if      (~Pready_mux || ~rise_pclk)  NEXT_STATE = ST_ENABLE_W; 
-                else if (~valid)                     NEXT_STATE = ST_IDLE;
-                else if (valid && Hwritereg)         NEXT_STATE = ST_SETUP_W; 
-                else if (valid &&  Hwrite)           NEXT_STATE = ST_WWAIT;    
-                else                                 NEXT_STATE = ST_ENABLE_R; 
-            end
-
-            default: NEXT_STATE = ST_IDLE;
-        endcase
-    end
-
-    logic        Penable_temp, Hreadyout_temp, Pwrite_temp;
-    logic [3:0]  Pselx_temp;
-    logic [31:0] Paddr_temp, Pwdata_temp;
-
-    always_comb begin : OCL
-        Penable_temp   = 1'b0;
-        Hreadyout_temp = 1'b1;
-        Pwrite_temp    = 1'b0;
-        Pselx_temp     = 4'b0000;
-        Pwdata_temp    = Pwdata;  
-
-        case (PRESENT_STATE)
-            ST_IDLE: begin
-                if (valid && ~Hwrite) begin
-                    Paddr_temp     = Haddr;
-                    Pselx_temp     = tempselx;
-                    Hreadyout_temp = 1'b0;   
-                end else if (valid && Hwrite) begin
-                    Hreadyout_temp = 1'b1; 
-                end
-            end
-
-            ST_WWAIT: begin
-                Paddr_temp     = Haddr1;      
-                Pwrite_temp    = 1'b1;
-                Pselx_temp     = tempselx;
-                Pwdata_temp    = Hwdata;
-                Hreadyout_temp = 1'b0;
-            end
-
-            ST_ENABLE_R: begin
-                Paddr_temp     = Haddr1;      
-                Pselx_temp     = tempselx;
-                Penable_temp   = 1'b1;
-                if (~Pready_mux) begin
-                    Hreadyout_temp = 1'b0;
-                end else begin
-                    Hreadyout_temp = 1'b1;
-                    if (valid && ~Hwrite) begin
-                        Paddr_temp     = Haddr;
-                        Pselx_temp     = tempselx;
-                        Penable_temp   = 1'b0;
-                        Hreadyout_temp = 1'b0;
-                    end
-                end
-            end
-
-            ST_SETUP_W: begin
-                Pselx_temp     = Pselx;
-                Pwrite_temp    = 1'b1;
-                Penable_temp   = 1'b0;
-                Hreadyout_temp = 1'b0;
-            end
-
-            ST_ENABLE_W: begin
-                Pselx_temp     = Pselx;       
-                Pwrite_temp    = 1'b1;
-                Penable_temp   = 1'b1;
-                if (~Pready_mux) begin
-                    Hreadyout_temp = 1'b0;
-                end else begin
-                    Hreadyout_temp = 1'b1;
-                    if (valid && Hwritereg) begin
-                        Paddr_temp     = Haddr2;
-                        Pwrite_temp    = 1'b1;
-                        Pselx_temp     = tempselx;
-                        Penable_temp   = 1'b0;
-                        Pwdata_temp    = Hwdata;
-                        Hreadyout_temp = 1'b0;
-                    end
-                end
-            end
-        endcase
-    end
-    
-    always_ff @(posedge Hclk or negedge Hresetn) begin
-        if (!Hresetn) begin
-            Paddr     <= 32'h0;
-            Pwrite    <= 1'b0;
-            Pselx     <= 4'b0000;
-            Pwdata    <= 32'h0;
-            Penable   <= 1'b0;
-            Hreadyout <= 1'b0;
+    always_ff @(posedge h_clk or negedge h_reset_n) begin
+        if (!h_reset_n) begin
+            state <= IDLE;
+            addr_reg <= 0;
+            write_reg <= 0;
         end else begin
-            Paddr     <= Paddr_temp;
-            Pwrite    <= Pwrite_temp;
-            Pselx     <= Pselx_temp;
-            Pwdata    <= Pwdata_temp;
-            Penable   <= Penable_temp;
-            Hreadyout <= Hreadyout_temp;
+            state <= next_state;
+            if (state == IDLE && valid) begin
+                addr_reg <= h_addr;
+                write_reg <= h_write;
+            end
         end
     end
 
-    assign PSEL = Pselx;
+    always_ff @(posedge h_clk or negedge h_reset_n) begin
+        if (!h_reset_n) wdata_reg <= 0;
+        else if (state == LATCH || (state == IDLE && valid && write_reg == 0)) begin
+            wdata_reg <= h_wdata;
+        end
+    end
 
     always_comb begin
-        case (1'b1)
-            PSEL[0]: begin Prdata_mux = PRDATA[0]; Pready_mux = PREADY[0]; end 
-            PSEL[1]: begin Prdata_mux = PRDATA[1]; Pready_mux = PREADY[1]; end 
-            PSEL[2]: begin Prdata_mux = PRDATA[2]; Pready_mux = PREADY[2]; end 
-            PSEL[3]: begin Prdata_mux = PRDATA[3]; Pready_mux = PREADY[3]; end 
-            default: begin Prdata_mux = 32'h0;     Pready_mux = 1'b1;       end 
+        next_state = state;
+        case (state)
+            IDLE: begin
+                if (valid) next_state = LATCH;
+            end
+            LATCH: begin
+                // Wait for pclk_fall to align APB signals
+                if (pclk_fall) next_state = SETUP;
+            end
+            SETUP: begin
+                if (pclk_fall) next_state = ACCESS;
+            end
+            ACCESS: begin
+                if (pclk_fall) begin
+                    // If there's a back-to-back transfer pending, we could go to LATCH, 
+                    // but for safety let's return to IDLE and process it.
+                    next_state = IDLE;
+                end
+            end
         endcase
     end
 
-    assign Hrdata = Prdata_mux;  
+    always_comb begin
+        h_ready_out = 1'b0;
+        h_resp = 1'b0;
+        p_enable = 1'b0;
+        p_write = write_reg;
+        p_addr = addr_reg;
+        p_wdata = (state == SETUP || state == ACCESS) ? (write_reg ? h_wdata : 32'b0) : 32'b0;
+        // Wait, standard AHB provides h_wdata during the data phase. 
+        // In SETUP and ACCESS, we are in the data phase, so h_wdata is valid.
+        
+        case (state)
+            IDLE: begin
+                h_ready_out = 1'b1;
+            end
+            LATCH: begin
+                h_ready_out = 1'b0;
+            end
+            SETUP: begin
+                h_ready_out = 1'b0;
+                p_enable = 1'b0;
+                p_wdata = write_reg ? h_wdata : 32'b0;
+            end
+            ACCESS: begin
+                // Assert h_ready_out on the LAST h_clk cycle of the ACCESS phase
+                // so the AHB master completes the transfer.
+                // It completes when pclk_fall is true.
+                h_ready_out = pclk_fall;
+                p_enable = 1'b1;
+                p_wdata = write_reg ? h_wdata : 32'b0;
+            end
+        endcase
+    end
+
+    always_comb begin
+        h_rdata = 0;
+        for (int j = 0; j < NUM_APB_SLAVES; j++) begin
+            if (p_selx[j]) begin
+                h_rdata = p_rdata[j];
+            end
+        end
+    end
 
 endmodule

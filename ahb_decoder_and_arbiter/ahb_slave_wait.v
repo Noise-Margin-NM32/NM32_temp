@@ -25,17 +25,17 @@ module ahb_slave_wait #(
     input  wire        slv_hwrite,
     input  wire [1:0]  slv_htrans,
     input  wire [2:0]  slv_hsize,
-//     input  wire [2:0]  slv_hburst, //changed by agy
+    input  wire [2:0]  slv_hburst,
     input  wire [31:0] slv_hwdata,
-//     input  wire [3:0]  slv_hprot, //changed by agy
+    input  wire [3:0]  slv_hprot,
     input  wire        slv_hready,
-//     input  wire [3:0]  slv_hmaster, //changed by agy
-//     input  wire        slv_hmastlock, //changed by agy
+    input  wire [3:0]  slv_hmaster,
+    input  wire        slv_hmastlock,
     // AHB slave outputs
     output reg         slv_hready_out,
     output reg [1:0]   slv_hresp,
     output wire [31:0] slv_hrdata,
-//     output wire [15:0] slv_hsplit, //changed by agy
+    output wire [15:0] slv_hsplit,
     // Slave error flag
     output reg         slv_err,
     // Wrapper interface
@@ -67,9 +67,9 @@ module ahb_slave_wait #(
     reg        r_hwrite;
     reg [1:0]  r_htrans;
     reg [2:0]  r_hsize;
-//     reg [2:0]  r_hburst; //changed by agy
-//     reg [3:0]  r_hprot; //changed by agy
-//     reg        r_hmastlock; //changed by agy
+    reg [2:0]  r_hburst;
+    reg [3:0]  r_hprot;
+    reg        r_hmastlock;
     reg        r_hready;
 
     // -----------------------------------------------------------------------
@@ -125,18 +125,18 @@ module ahb_slave_wait #(
             r_hwrite    <= 1'b0;
             r_htrans    <= `IDLE;
             r_hsize     <= `BITS32;
-//             r_hburst    <= `INCR; //changed by agy
-//             r_hprot     <= 4'b0011; //changed by agy
-//             r_hmastlock <= 1'b0; //changed by agy
+            r_hburst    <= `INCR;
+            r_hprot     <= 4'b0011;
+            r_hmastlock <= 1'b0;
         end else begin
             r_hready <= slv_hready;
             if (slv_hready) begin
                 r_hsel      <= slv_hsel;
-//                 r_hburst    <= slv_hburst; //changed by agy
-//                 r_hprot     <= slv_hprot; //changed by agy
+                r_hburst    <= slv_hburst;
+                r_hprot     <= slv_hprot;
                 r_hsize     <= slv_hsize;
                 r_hwrite    <= slv_hwrite;
-//                 r_hmastlock <= slv_hmastlock; //changed by agy
+                r_hmastlock <= slv_hmastlock;
             end
             if (slv_hready && r_htrans != `BUSY) begin
                 r_haddr <= slv_haddr;
@@ -190,7 +190,7 @@ module ahb_slave_wait #(
     // hrdata / hsplit
     // -----------------------------------------------------------------------
     assign slv_hrdata = s_wrap_rdata;
-//     assign slv_hsplit = 16'b0; //changed by agy
+    assign slv_hsplit = 16'b0;
 
     // slv_running (unused in wait-type slave but driven for compatibility)
     assign slv_running = r_hsel && (r_htrans == `NONSEQ || r_htrans == `SEQ);

@@ -23,14 +23,19 @@
 
 module nm32_top(
     input wire clk,
-    input wire pclk, // For APB peripherals
     input wire rstn,
     input wire [1-1:0] rx_ws,
     input wire [1-1:0] rx_sck,
     output wire [1-1:0] tx_ws,
     output wire [1-1:0] tx_sck,
     input wire [1-1:0] sdi,
-    output wire [1-1:0] sdo
+    output wire [1-1:0] sdo,
+    // SPI Master Ports
+    output wire spi_clk,
+    output wire [3:0] spi_csn,
+    output wire [1:0] spi_mode,
+    output wire [3:0] spi_sdo,
+    input wire [3:0] spi_sdi
 );
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -43,22 +48,30 @@ localparam NUM_SLVS = 6;
 
 localparam APB_NUM_SLVS = 2;
 
+localparam TRAN_WIDTH = 2;
+localparam DATA_WIDTH = 32;
+
+localparam SPI_BUF_DEPTH = 10;
+
+
 localparam [32*16-1:0] ADDR_LOW_FLAT  = {320'b0, 32'h6000_0000, 32'h5000_0000, 32'h4000_0000, 32'h0000_0000, 32'h3000_0000, 32'h2000_0000}; //ifft, scratchpad, fft, bootrom, sram, apbbridge
 localparam [32*16-1:0] ADDR_HIGH_FLAT = {320'b0, 32'h6000_0FFF, 32'h5000_3FFF, 32'h4000_0FFF, 32'h0000_FFFF, 32'h3000_FFFF, 32'h200F_FFFF};
 
 localparam i2s_AW = 4;
 localparam i2s_DW = 32;
 
-localparam [31:0] I2S_RX_BASE = 32'h2000_0000;
-localparam [31:0] I2S_RX_SIZE = 32'h0000_FFFF;
-localparam [31:0] I2S_TX_BASE = 32'h2001_0000;
-localparam [31:0] I2S_TX_SIZE = 32'h0000_FFFF;
-localparam [31:0] GPIO_BASE   = 32'h0000_0000;
-localparam [31:0] GPIO_SIZE   = 32'h0000_0000;
-localparam [31:0] WDT_BASE    = 32'h0000_0000;
-localparam [31:0] WDT_SIZE    = 32'h0000_0000;
+
+
+// localparam SPI_BUF_DEPTH = 10;
+
+localparam NUM_APB_SLAVES = 3; // I2S, I2S_TX, SPI
+localparam [NUM_APB_SLAVES-1:0][31:0] SLAVE_ADDR_START = {32'h2002_0000, 32'h2001_0000, 32'h2000_0000};
+localparam [NUM_APB_SLAVES-1:0][31:0] SLAVE_ADDR_END   = {32'h2002_FFFF, 32'h2001_FFFF, 32'h2000_FFFF};
 
 // wire remap;
+
+wire pclk; // For APB peripherals
+reg pclk_reg;
 
 //cpu - AHB bus wires
 wire [31:0] cpu_haddr;
@@ -132,27 +145,25 @@ wire [NUM_SLVS-1:0][31:0]         slv_hrdata_v; //changed by agy
 
 
 //AHB to APB bridge wires
-wire                       bridge_h_sel_apb    ; 
+
 wire                       bridge_h_write      ;
+wire                       bridge_h_sel_apb    ; 
 wire                       bridge_h_ready_in   ;
-wire [1 : 0]  bridge_h_trans      ;
-wire [31 : 0]              bridge_h_addr       ;
-wire [31 : 0]              bridge_h_wdata      ;
+wire [TRAN_WIDTH - 1 : 0]  bridge_h_trans      ;
+wire [DATA_WIDTH - 1 : 0]  bridge_h_wdata      ;
+wire [DATA_WIDTH - 1 : 0]  bridge_h_addr       ;
+wire [NUM_APB_SLAVES-1:0][DATA_WIDTH - 1 : 0]  bridge_p_rdata      ;
 
-wire [31 : 0]  bridge_h_rdata      ;
-wire [1:0]                 bridge_h_resp       ;
+wire                       bridge_h_resp       ;
 wire                       bridge_h_ready_out  ;
-
-wire [3:0][31 : 0]         bridge_p_rdata      ;
-wire [3:0]                 bridge_p_ready      ;
-
 wire                       bridge_p_enable     ;
 wire                       bridge_p_write      ;
-wire [31 : 0]  bridge_p_addr       ;
-wire [31 : 0]  bridge_p_wdata      ;
-wire [3:0]    bridge_p_selx       ;
+wire [NUM_APB_SLAVES-1:0]  bridge_p_selx       ;
+wire [DATA_WIDTH - 1 : 0]  bridge_p_wdata      ;
+wire [DATA_WIDTH - 1 : 0]  bridge_p_addr       ;
+wire [DATA_WIDTH - 1 : 0]  bridge_h_rdata      ;
 
-
+wire [NUM_APB_SLAVES-1:0]       bridge_pready; // From APB slaves to bridge
 
 //SRAM wrapper WIRES 
  wire             sram_HSEL;
@@ -198,11 +209,35 @@ wire [1:0]  boot_rom_HRESP;
  wire [ 31:0] i2s_tx_PRDATA;
  wire         i2s_tx_IRQ;
 
+
+
+ wire [31:0] spi_PADDR;
+ wire [31:0] spi_PWDATA;
+ wire        spi_PWRITE;
+ wire         spi_PSEL;
+ wire         spi_PENABLE;
+ wire [ 31:0] spi_PRDATA;
+ wire         spi_PREADY;
+ wire         spi_PSLVERR;//???? What to tie off to
+ wire [ 1:0]  spi_events;//????? WHat to tie off to 
+
+
 //  wire [1-1:0] sdo;
 
 
 
 ///////////////////////////////////////////////////////////////////////////TIE OFFS////////////////////////////////////////////////////////////////////////
+
+always @(posedge clk or negedge rstn) begin
+    if(!rstn) begin
+        pclk_reg <= 1'b0;
+    end else begin
+        pclk_reg <= ~pclk_reg; // Divide clk by 2 for APB peripherals
+    end
+end
+
+assign pclk = pclk_reg;
+
 
 assign mst_hbusreq[0] = cpu_hbusreq;        //CPU sending to the arbiter
 // assign mst_hlock[0] = cpu_hlock; //changed by agy
@@ -349,29 +384,17 @@ assign i2s_PWRITE = bridge_p_write; // From bridge to APB slave
 assign i2s_PWDATA = bridge_p_wdata; // From bridge to APB slave
 assign i2s_PADDR = bridge_p_addr;   // From bridge to APB slave
 assign i2s_PENABLE = bridge_p_enable; // From bridge to APB slave
-assign i2s_PSEL = bridge_p_selx[0]; // Assuming I2S is APB slave 0
-assign bridge_p_ready[0] = i2s_PREADY; // From bridge to APB slave
-assign bridge_p_rdata[0] = i2s_PRDATA; // From bridge to APB slave
-
-
-
+assign i2s_PSEL = bridge_p_selx[0]; // From bridge to APB slave
+assign bridge_pready[0] = i2s_PREADY; // From APB slave to bridge
+assign bridge_p_rdata[0] = i2s_PRDATA; // From APB slave to bridge
 
 assign i2s_tx_PWRITE = bridge_p_write; // From bridge to APB slave
 assign i2s_tx_PWDATA = bridge_p_wdata; // From bridge to APB slave
 assign i2s_tx_PADDR = bridge_p_addr;   // From bridge to APB slave
 assign i2s_tx_PENABLE = bridge_p_enable; // From bridge to APB slave
-assign i2s_tx_PSEL = bridge_p_selx[1]; // Assuming I2S TX is APB slave 1
-assign bridge_p_ready[1] = i2s_tx_PREADY; // From bridge to APB slave
-assign bridge_p_rdata[1] = i2s_tx_PRDATA; // From bridge to APB slave
-
-generate
-    genvar idx;
-    for(idx = 2; idx < 4; idx = idx + 1) begin
-        assign bridge_p_selx[idx] = 32'b0; // No more APB slaves for now
-        assign bridge_p_ready[idx] = 1'b0; // Tie ready high for non-existent slaves
-        assign bridge_p_rdata[idx] = 32'b0; // Tie data to 0 for non-existent slaves
-    end
-endgenerate
+assign i2s_tx_PSEL = bridge_p_selx[1]; // From bridge to APB slave
+assign bridge_pready[1] = i2s_tx_PREADY; // From APB slave to bridge
+assign bridge_p_rdata[1] = i2s_tx_PRDATA; // From APB slave to bridge
 
 // assign slv_hrdata_v = {(NUM_SLVS-2){32'b0}, sram_HRDATA, bridge_h_rdata}; // To arbiter (only from slave 0)
 // assign slv_hresp_v = {(NUM_SLVS-1){2'b00}, bridge_h_resp}; // To arbiter (only from slave 0)
@@ -412,14 +435,22 @@ assign slv_hready_in_v[5] = ifft_HREADYOUT;
 generate
    genvar j;
     for(j = 6; j<15; j = j+1) begin
-        assign slv_hrdata_v[j] = 0;
-        assign slv_hresp_v[j] = 0;
-        // assign slv_hready_in_v[j] = 0;
+//        assign slv_hrdata_v[j] = 0;
+//        assign slv_hresp_v[j] = 0;
+         assign slv_hready_in_v[j] = 0;
 //      assign slv_hsplit_v[j] = 0; //changed by agy
     end
 
 endgenerate
 
+
+assign spi_PADDR = bridge_p_addr; // From bridge to APB slave
+assign spi_PWDATA = bridge_p_wdata; // From bridge to APB slave
+assign spi_PWRITE = bridge_p_write; // From bridge to APB slave
+assign spi_PSEL = bridge_p_selx[2]; // From bridge to APB slave
+assign spi_PENABLE = bridge_p_enable; // From bridge to APB slave
+assign bridge_pready[2] = spi_PREADY; // From APB slave to bridge
+assign bridge_p_rdata[2] = spi_PRDATA; // From APB slave to
 
 //////////////////////////////////////////////////////////////////////////////// INSTANTIATIONS ////////////////////////////////////////////////////////////////////////
 
@@ -502,39 +533,38 @@ arbiter
 );
 
 //changed by agy
-ahb_apb_bridge #(
-    .I2S_RX_BASE(I2S_RX_BASE),
-    .I2S_RX_SIZE(I2S_RX_SIZE),
-    .I2S_TX_BASE(I2S_TX_BASE),
-    .I2S_TX_SIZE(I2S_TX_SIZE),
-    .GPIO_BASE(GPIO_BASE),
-    .GPIO_SIZE(GPIO_SIZE),
-    .WDT_BASE(WDT_BASE),
-    .WDT_SIZE(WDT_SIZE)
-    )
-    bridge (
-    .Hclk      (clk),
-    .Pclk      (pclk),
-    .Hresetn   (rstn),
-    .HSEL      (bridge_h_sel_apb),
-    .Hwrite    (bridge_h_write),
-    .Hreadyin  (bridge_h_ready_in),
-    .Htrans    (bridge_h_trans),
-    .Haddr     (bridge_h_addr),
-    .Hwdata    (bridge_h_wdata),
+AHB_to_APB_Bridge #(
+              .DATA_WIDTH(32),
+              .ADDR_WIDTH(32),
+              .TRAN_WIDTH(2),
+              .NUM_APB_SLAVES(NUM_APB_SLAVES),
+              .SLAVE_ADDR_START(SLAVE_ADDR_START),
+              .SLAVE_ADDR_END(SLAVE_ADDR_END)
 
-    .Hreadyout (bridge_h_ready_out),
-    .Hresp     (bridge_h_resp),
-    .Hrdata    (bridge_h_rdata),
+)
+bridge (
+    //inputs
+    .h_clk(clk),
+    .pclk(pclk), // ADDED PCLK
+    .h_reset_n(rstn),
+    .h_write(bridge_h_write), // From arbiter to bridge
+    .h_sel_apb(bridge_h_sel_apb), // Assuming slave 0 is the APB bridge
+    .h_ready_in(bridge_h_ready_in), // Ready from slave 0
+    .h_trans(bridge_h_trans), // From arbiter to bridge
+    .h_wdata(bridge_h_wdata), // From arbiter to bridge
+    .h_addr(bridge_h_addr),   // From arbiter to bridge
+    .p_rdata(bridge_p_rdata), // From APB slave to bridge
+    //outputs
+    .h_resp(bridge_h_resp), // to arbiter
+    .h_ready_out(bridge_h_ready_out), // To slave 0
+    .p_enable(bridge_p_enable), // To APB slave (not used in this simple bridge)
+    .p_write(bridge_p_write),  // To APB slave (not used in this simple bridge)
+    .p_selx(bridge_p_selx),   // To APB slave (not used in this simple bridge)
+    .p_wdata(bridge_p_wdata),  // To APB slave (not used in this simple bridge)
+    .p_addr(bridge_p_addr),    // To APB slave (not used in this simple bridge)
+    .h_rdata(bridge_h_rdata),   // To arbiter (not used in this simple bridge)
+    .pready(bridge_pready)
 
-    .Penable   (bridge_p_enable),
-    .Pwrite    (bridge_p_write),
-    .Paddr     (bridge_p_addr),
-    .Pwdata    (bridge_p_wdata),
-    .PSEL      (bridge_p_selx),
-    
-    .PRDATA    (bridge_p_rdata), // {i2s_tx_PRDATA, i2s_PRDATA}
-    .PREADY    (bridge_p_ready)
 );
 
 

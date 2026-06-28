@@ -6,11 +6,14 @@ ENTRY(_start)
 /* ======================================================================= */
 MEMORY
 {
-    /* 4KB Boot ROM at 0x0000_0000. Read & Executable only */
-    ROM (rx)  : ORIGIN = 0x00000000, LENGTH = 4K
+    /* 4KB Boot ROM. Houses only the bootloader code */
+    ROM (rx)   : ORIGIN = 0x00000000, LENGTH = 4K
     
-    /* 4KB Data SRAM at 0x3000_0000. Read, Write & Executable */
-    RAM (rwx) : ORIGIN = 0x30000000, LENGTH = 4K
+    /* 4KB Internal SRAM (ITCM). Main application executes here */
+    RAM (rwx)  : ORIGIN = 0x30000000, LENGTH = 4K
+
+    /* External SPI Flash memory footprint mapped image */
+    FLASH (rx) : ORIGIN = 0x80000000, LENGTH = 64K
 }
 
 /* ======================================================================= */
@@ -18,42 +21,63 @@ MEMORY
 /* ======================================================================= */
 SECTIONS
 {
-    /* --- Output Section 1: The Code Base --- */
+    /* --- 1. Bootloader Code Section --- */
+    /* This section goes entirely into the Boot ROM and runs from there */
+    .boot : {
+        . = ALIGN(4);
+        *start.o(.text .text.*)     /* Pull text from start assembly file */
+        *start.o(.rodata .rodata.*) 
+        *bootloader.o(.text .text.*) /* Pull text from C bootloader */
+        *bootloader.o(.rodata .rodata.*) 
+        . = ALIGN(4);
+    } > ROM
+
+    /* --- 2. Main Application Code Section (.text) --- */
+    /* VMA (Runtime) = RAM (0x30000000) | LMA (Storage) = FLASH (0x80000000) */
     .text : {
-        . = ALIGN(4);      /* Ensure 32-bit alignment */
-        *(.text)           /* Include all instruction blocks */
-        *(.text.*)         
-        *(.rodata)         /* Include hardcoded constants */
+        . = ALIGN(4);
+        _text_ram_start = .;       /* Start address in RAM */
+        *(.text)                   /* All application code instructions */
+        *(.text.*)
+        *(.rodata)                 /* Constant globals and strings */
         *(.rodata.*)
         . = ALIGN(4);
-    } > ROM                /* Force this entire block into the Boot ROM */
+        _text_ram_end = .;         /* End address in RAM */
+    } > RAM AT> FLASH
 
-    /* --- Output Section 2: Initialized Variables --- */
-    /* AT> ROM sets the LMA (storage location). > RAM sets the VMA (runtime location) */
+    /* Location of the .text binary payload inside the external Flash */
+    _text_flash_start = LOADADDR(.text);
+
+
+    /* --- 3. Initialized Application Variables (.data) --- */
+    /* VMA (Runtime) = RAM | LMA (Storage) = FLASH */
     .data : {
         . = ALIGN(4);
-        _data_start = .;   /* TAG: Start of RAM data for start.S */
-        *(.data)           
+        _data_ram_start = .;       /* Start of mutable data in RAM */
+        *(.data)                   /* Initialized variables (e.g., int x = 5;) */
         *(.data.*)
         . = ALIGN(4);
-        _data_end = .;     /* TAG: End of RAM data for start.S */
-    } > RAM AT> ROM        
+        _data_ram_end = .;         /* End of mutable data in RAM */
+    } > RAM AT> FLASH
 
-    /* TAG: Where the data's backup image sits in the ROM for start.S to copy from */
-    _data_load_start = LOADADDR(.data);
+    /* Location of the .data initialization bytes inside the external Flash */
+    _data_flash_start = LOADADDR(.data);
 
-    /* --- Output Section 3: Zero-Initialized Variables --- */
+
+    /* --- 4. Uninitialized Variables (.bss) --- */
+    /* Stays strictly in RAM; filled with zeroes during boot */
     .bss : {
         . = ALIGN(4);
-        _bss_start = .;    /* TAG: Start of uninitialized data for start.S */
+        _bss_start = .;
         *(.bss)
         *(.bss.*)
-        *(COMMON)          
+        *(COMMON)
         . = ALIGN(4);
-        _bss_end = .;      /* TAG: End of uninitialized data for start.S */
+        _bss_end = .;
     } > RAM
 
-    /* --- Output Section 4: System Stack Placement --- */
-    /* The stack pointer starts at the very top of memory and grows downwards */
-    PROVIDE(_stack_start = ORIGIN(RAM) + LENGTH(RAM));
+
+    /* --- 5. Stack Pointer Initialization --- */
+    /* Top of the 4KB RAM block growing downward */
+    PROVIDE(_stack_top = ORIGIN(RAM) + LENGTH(RAM));
 }

@@ -19,7 +19,7 @@ module boot_rom_ahb (
 
     // This is where the magic happens! The simulator loads your compiled code here.
     initial begin
-        $readmemh("/home/omkar/NM32_temp/firmware/firmware.hex", memory);
+        $readmemh("/home/omkar/NM32_temp/firmware/bootrom.hex", memory);
     end
 
     // --- AHB Address Phase (Cleaned up, unused code removed) ---

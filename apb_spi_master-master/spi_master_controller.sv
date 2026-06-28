@@ -204,13 +204,13 @@ module spi_master_controller
     spi_en_rx        = 1'b0;
     spi_en_tx        = 1'b0;
     spi_status       =  '0;
-    s_spi_mode       = `SPI_QUAD_RX;
+    s_spi_mode       = `SPI_STD;
     eot              = 1'b0;
     case(state)
       IDLE:
       begin
         spi_status[0] = 1'b1;
-        s_spi_mode = `SPI_QUAD_RX;
+        s_spi_mode = `SPI_STD;
         if (spi_rd || spi_wr || spi_qrd || spi_qwr)
         begin
           spi_cs       = 1'b0;
@@ -523,7 +523,7 @@ module spi_master_controller
       en_quad_int <= 1'b0;
       do_rx       <= 1'b0;
       do_tx       <= 1'b0;
-      spi_mode    <= `SPI_QUAD_RX;
+      spi_mode    <= `SPI_STD;
     end
     else
     begin

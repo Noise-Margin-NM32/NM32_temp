@@ -9,6 +9,7 @@
 
 #define I2S_RX_BASE    0x20000000
 #define I2S_TX_BASE    0x20010000
+#define SPI_BASE_ADDR   0x20020000
 
 #define I2S_RX_DATA    (*((volatile uint32_t*)(I2S_RX_BASE + 0x00)))
 #define I2S_RX_PR      (*((volatile uint32_t*)(I2S_RX_BASE + 0x04)))

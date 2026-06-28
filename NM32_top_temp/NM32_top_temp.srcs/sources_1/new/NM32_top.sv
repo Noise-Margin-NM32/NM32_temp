@@ -33,7 +33,7 @@ module nm32_top(
     // SPI Master Ports
     output wire spi_clk,
     output wire [3:0] spi_csn,
-    output wire [1:0] spi_mode,
+    input wire [1:0] spi_mode,
     output wire [3:0] spi_sdo,
     input wire [3:0] spi_sdi
 );
@@ -70,7 +70,7 @@ localparam [NUM_APB_SLAVES-1:0][31:0] SLAVE_ADDR_END   = {32'h2002_FFFF, 32'h200
 
 // wire remap;
 
-wire pclk; // For APB peripherals
+// wire pclk; // For APB peripherals
 reg pclk_reg;
 
 //cpu - AHB bus wires
@@ -778,6 +778,38 @@ boot_rom_ahb boot_rom (
 
 
 
+    apb_spi_master #(
+        .BUFFER_DEPTH(SPI_BUF_DEPTH),
+        .APB_ADDR_WIDTH(4)
+    ) spi_inst (
+    .HCLK   (pclk),
+    .HRESETn(rstn),
+    .PADDR  (spi_PADDR[11:0]),
+    .PWDATA (spi_PWDATA),
+    .PWRITE (spi_PWRITE),
+    .PSEL   (spi_PSEL),
+    .PENABLE(spi_PENABLE),
+    .PRDATA (spi_PRDATA),
+    .PREADY (spi_PREADY),
+    .PSLVERR(spi_PSLVERR),
+
+    .events_o(spi_events),
+
+    .spi_clk (spi_clk),
+    .spi_csn0(spi_csn[0]),
+    .spi_csn1(spi_csn[1]),
+    .spi_csn2(spi_csn[2]),
+    .spi_csn3(spi_csn[3]),
+    .spi_mode(spi_mode),
+    .spi_sdo0(spi_sdo[0]),
+    .spi_sdo1(spi_sdo[1]),
+    .spi_sdo2(spi_sdo[2]),
+    .spi_sdo3(spi_sdo[3]),
+    .spi_sdi0(spi_sdi[0]),
+    .spi_sdi1(spi_sdi[1]),
+    .spi_sdi2(spi_sdi[2]),
+    .spi_sdi3(spi_sdi[3])
+    );
 // SIMPLE MEMORY (TEMP)
 // reg [31:0] memory [0:1023];+
 

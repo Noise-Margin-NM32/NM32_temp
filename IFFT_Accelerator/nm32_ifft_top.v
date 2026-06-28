@@ -86,12 +86,20 @@ module nm32_ifft_top (
     reg [8:0] j;
     reg [2:0] state;
 
+    always @(posedge clk) begin
+        if (state != 0) begin
+            $display("Time=%0t: [IFFT ENGINE] state=%d s=%d k=%d j=%d bf_start=%b bf_done=%b done=%b", 
+                     $time, state, s, k, j, bf_start, bf_done, done);
+        end
+    end
+
     always @(posedge clk or posedge rst) begin
         if (rst) begin
             state <= 0;
             done <= 0;
             bf_start <= 0;
             ram_we_a_reg <= 0; ram_we_b_reg <= 0;
+            ram_addr_a_reg <= 0; ram_addr_b_reg <= 0;
             s <= 1; m <= 2; m2 <= 1; k <= 0; j <= 0;
         end else begin
             case (state)

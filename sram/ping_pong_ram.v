@@ -31,6 +31,14 @@ module ping_pong_ram (
     reg [31:0] bank0 [0:511];
     reg [31:0] bank1 [0:511];
     
+    integer i;
+    initial begin
+        for (i = 0; i < 512; i = i + 1) begin
+            bank0[i] = 0;
+            bank1[i] = 0;
+        end
+    end
+    
     // Control Registers
     reg accel_bank_sel; // 0 = Bank0, 1 = Bank1
     

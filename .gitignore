@@ -7,9 +7,6 @@
 *.dcp
 *.vds
 __pycache__/
-*.bin
-*.elf
-*.hex
 *.cache/
 *.sim/
 *.log

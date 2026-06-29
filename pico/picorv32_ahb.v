@@ -111,9 +111,9 @@ module pico_to_ahb (
     input  wire [31:0] mst_hrdata_out,
     input  wire [1:0]  mst_hresp_out,
     output reg         mst_hbusreq,
-    output wire        mst_hlock,
-    output wire [2:0]  mst_hburst,
-    output wire [3:0]  mst_hprot,
+//  output wire        mst_hlock, //changed by agy
+//  output wire [2:0]  mst_hburst, //changed by agy
+//  output wire [3:0]  mst_hprot, //changed by agy
     input  wire        mst_hgrant
 );
 
@@ -125,9 +125,9 @@ module pico_to_ahb (
     reg [1:0] state;
     
     // Static AHB Tie-offs
-    assign mst_hburst = 3'b000;  // SINGLE transfer
-    assign mst_hlock  = 1'b0;    // No locked transfers
-    assign mst_hprot  = {3'b001, ~mem_instr}; // Data vs Opcode mapping
+//  assign mst_hburst = 3'b000;  // SINGLE transfer //changed by agy
+//  assign mst_hlock  = 1'b0;    // No locked transfers //changed by agy
+//  assign mst_hprot  = {3'b001, ~mem_instr}; // Data vs Opcode mapping //changed by agy
     
     // Combinational HSIZE decoding
     reg [2:0] next_hsize;

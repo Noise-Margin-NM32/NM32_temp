@@ -23,28 +23,55 @@
 
 module nm32_top(
     input wire clk,
-    input wire pclk, // For APB peripherals
     input wire rstn,
     input wire [1-1:0] rx_ws,
     input wire [1-1:0] rx_sck,
     output wire [1-1:0] tx_ws,
     output wire [1-1:0] tx_sck,
     input wire [1-1:0] sdi,
-    output wire [1-1:0] sdo
+    output wire [1-1:0] sdo,
+    // SPI Master Ports
+    output wire spi_clk,
+    output wire [3:0] spi_csn,
+    input wire [1:0] spi_mode,
+    output wire [3:0] spi_sdo,
+    input wire [3:0] spi_sdi
 );
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////           Wires and Parameters           ////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-localparam NUM_SLVS = 3;
+localparam NUM_ARB_MSTS = 1; // Number of AHB masters in the system
+localparam DEF_ARB_MST  = 0; // Default AHB master to be granted bus access when no other masters are requesting
+localparam NUM_SLVS = 6;
+
+localparam APB_NUM_SLVS = 2;
+
 localparam TRAN_WIDTH = 2;
 localparam DATA_WIDTH = 32;
+
+localparam SPI_BUF_DEPTH = 10;
+
+
+localparam [32*16-1:0] ADDR_LOW_FLAT  = {320'b0, 32'h6000_0000, 32'h5000_0000, 32'h4000_0000, 32'h0000_0000, 32'h3000_0000, 32'h2000_0000}; //ifft, scratchpad, fft, bootrom, sram, apbbridge
+localparam [32*16-1:0] ADDR_HIGH_FLAT = {320'b0, 32'h6000_0FFF, 32'h5000_3FFF, 32'h4000_0FFF, 32'h0000_FFFF, 32'h3000_FFFF, 32'h200F_FFFF};
 
 localparam i2s_AW = 4;
 localparam i2s_DW = 32;
 
-wire remap;
+
+
+// localparam SPI_BUF_DEPTH = 10;
+
+localparam NUM_APB_SLAVES = 3; // I2S, I2S_TX, SPI
+localparam [NUM_APB_SLAVES-1:0][31:0] SLAVE_ADDR_START = {32'h2002_0000, 32'h2001_0000, 32'h2000_0000};
+localparam [NUM_APB_SLAVES-1:0][31:0] SLAVE_ADDR_END   = {32'h2002_FFFF, 32'h2001_FFFF, 32'h2000_FFFF};
+
+// wire remap;
+
+// wire pclk; // For APB peripherals
+reg pclk_reg;
 
 //cpu - AHB bus wires
 wire [31:0] cpu_haddr;
@@ -58,9 +85,9 @@ wire [1:0]  cpu_hresp;
 
 wire cpu_hgrant;
 wire cpu_hbusreq;
-wire cpu_hlock;
-wire [2:0] cpu_hburst;
-wire [3:0] cpu_hprot;
+// wire cpu_hlock; //changed by agy
+// wire [2:0] cpu_hburst; //changed by agy
+// wire [3:0] cpu_hprot; //changed by agy
 
 // assign cpu_hbusreq; // CPU always requests the bus?
 // assign cpu_hlock;   // No locked transfers for now
@@ -76,19 +103,20 @@ wire [31:0] cpu_mem_addr;
 wire [31:0] cpu_mem_wdata;
 wire [3:0]  cpu_mem_wstrb;
 wire [31:0] cpu_mem_rdata;
+wire        cpu_mem_instr;
 
 
 // Arbiter wires
 
 wire [14:0] mst_hbusreq;   // [i] = master i hbusreq
-wire [14:0] mst_hlock;
-wire [29:0] mst_htrans;    // [2i+1:2i] = master i htrans
-wire [31:0] mst_haddr   [0:14];
+// wire [14:0] mst_hlock; //changed by agy
+wire [14:0][1:0]  mst_htrans;    //changed by agy
+wire [14:0][31:0] mst_haddr;     //changed by agy
 wire [14:0] mst_hwrite;
-wire [2:0]  mst_hsize   [0:14];
-wire [2:0]  mst_hburst  [0:14];
-wire [3:0]  mst_hprot   [0:14];
-wire [31:0] mst_hwdata  [0:14];
+wire [14:0][2:0]  mst_hsize;     //changed by agy
+// wire [14:0][2:0]  mst_hburst;    //changed by agy
+// wire [14:0][3:0]  mst_hprot;     //changed by agy
+wire [14:0][31:0] mst_hwdata;    //changed by agy
 
 // Master inputs (what arbiter feeds back to each master)
 wire [14:0] mst_hgrant;
@@ -102,39 +130,40 @@ wire [31:0]         slv_haddr_out;
 wire                slv_hwrite_out;
 wire [1:0]          slv_htrans_out;
 wire [2:0]          slv_hsize_out;
-wire [2:0]          slv_hburst_out;
-wire [3:0]          slv_hprot_out;
+// wire [2:0]          slv_hburst_out; //changed by agy
+// wire [3:0]          slv_hprot_out; //changed by agy
 wire [31:0]         slv_hwdata_out;
-wire [3:0]          slv_hmaster_out;
-wire                slv_hmastlock_out;
+// wire [3:0]          slv_hmaster_out; //changed by agy
+// wire                slv_hmastlock_out; //changed by agy
 wire                slv_hready_in;  // hready fed into slaves
 
 // Slave outputs (what each slave drives back)
-wire [NUM_SLVS-1:0] slv_hready_in_v;
-wire [1:0]          slv_hresp_v   [0:14];
-wire [31:0]         slv_hrdata_v  [0:14];
-wire [15:0]         slv_hsplit_v  [0:14];
+wire [NUM_SLVS-1:0]               slv_hready_in_v;
+wire [NUM_SLVS-1:0][1:0]          slv_hresp_v;  //changed by agy
+wire [NUM_SLVS-1:0][31:0]         slv_hrdata_v; //changed by agy
+// wire [14:0][15:0]         slv_hsplit_v; //changed by agy
 
 
 //AHB to APB bridge wires
+
 wire                       bridge_h_write      ;
 wire                       bridge_h_sel_apb    ; 
 wire                       bridge_h_ready_in   ;
 wire [TRAN_WIDTH - 1 : 0]  bridge_h_trans      ;
 wire [DATA_WIDTH - 1 : 0]  bridge_h_wdata      ;
 wire [DATA_WIDTH - 1 : 0]  bridge_h_addr       ;
-wire [DATA_WIDTH - 1 : 0]  bridge_p_rdata      ;
+wire [NUM_APB_SLAVES-1:0][DATA_WIDTH - 1 : 0]  bridge_p_rdata      ;
 
 wire                       bridge_h_resp       ;
 wire                       bridge_h_ready_out  ;
 wire                       bridge_p_enable     ;
 wire                       bridge_p_write      ;
-wire                       bridge_p_selx       ;
+wire [NUM_APB_SLAVES-1:0]  bridge_p_selx       ;
 wire [DATA_WIDTH - 1 : 0]  bridge_p_wdata      ;
 wire [DATA_WIDTH - 1 : 0]  bridge_p_addr       ;
 wire [DATA_WIDTH - 1 : 0]  bridge_h_rdata      ;
 
-
+wire [NUM_APB_SLAVES-1:0]       bridge_pready; // From APB slaves to bridge
 
 //SRAM wrapper WIRES 
  wire             sram_HSEL;
@@ -180,46 +209,57 @@ wire [1:0]  boot_rom_HRESP;
  wire [ 31:0] i2s_tx_PRDATA;
  wire         i2s_tx_IRQ;
 
+
+
+ wire [31:0] spi_PADDR;
+ wire [31:0] spi_PWDATA;
+ wire        spi_PWRITE;
+ wire         spi_PSEL;
+ wire         spi_PENABLE;
+ wire [ 31:0] spi_PRDATA;
+ wire         spi_PREADY;
+ wire         spi_PSLVERR;//???? What to tie off to
+ wire [ 1:0]  spi_events;//????? WHat to tie off to 
+
+
 //  wire [1-1:0] sdo;
 
 
 
 ///////////////////////////////////////////////////////////////////////////TIE OFFS////////////////////////////////////////////////////////////////////////
 
+always @(posedge clk or negedge rstn) begin
+    if(!rstn) begin
+        pclk_reg <= 1'b0;
+    end else begin
+        pclk_reg <= ~pclk_reg; // Divide clk by 2 for APB peripherals
+    end
+end
 
+assign pclk = pclk_reg;
 
-// CPU is master 0 on the AHB bus
-// assign mst_hbusreq = {14'b0, cpu_hbusreq};        //CPU sending to the arbiter
-// assign mst_hlock = {14'b0, cpu_hlock};
-// assign mst_htrans = {28'b0, cpu_htrans};
-// assign mst_haddr = {14'b0, cpu_haddr};
-// assign mst_hwrite = {14'b0, cpu_hwrite};
-// assign mst_hsize = {14'b0, cpu_hsize};
-// assign mst_hburst = {14'b0, cpu_hburst};
-// assign mst_hprot = {14'b0, cpu_hprot};
-// assign mst_hwdata = {14'b0, cpu_hwdata};
 
 assign mst_hbusreq[0] = cpu_hbusreq;        //CPU sending to the arbiter
-assign mst_hlock[0] = cpu_hlock;
-assign mst_htrans[1:0] = cpu_htrans;
+// assign mst_hlock[0] = cpu_hlock; //changed by agy
+assign mst_htrans[0] = cpu_htrans; //changed by agy
 assign mst_haddr[0] = cpu_haddr;
 assign mst_hwrite[0] = cpu_hwrite;
 assign mst_hsize[0] = cpu_hsize;
-assign mst_hburst[0] = cpu_hburst;
-assign mst_hprot[0] = cpu_hprot;
+// assign mst_hburst[0] = cpu_hburst; //changed by agy
+// assign mst_hprot[0] = cpu_hprot; //changed by agy
 assign mst_hwdata[0] = cpu_hwdata;
 
 generate
     genvar i;
     for(i = 1; i<15; i = i+1) begin
         assign mst_hbusreq[i] = 1'b0;
-        assign mst_hlock[i] = 1'b0;
-        assign mst_htrans[2*i +: 2] = 2'b00;
+//         assign mst_hlock[i] = 1'b0; //changed by agy
+        assign mst_htrans[i] = 2'b00; //changed by agy
         assign mst_haddr[i] = 1'b0;
         assign mst_hwrite[i] = 1'b0;
         assign mst_hsize[i] = 1'b0;
-        assign mst_hburst[i] = 1'b0;
-        assign mst_hprot[i] = 1'b0;
+//         assign mst_hburst[i] = 1'b0; //changed by agy
+//         assign mst_hprot[i] = 1'b0; //changed by agy
         assign mst_hwdata[i] = 1'b0;
     end
 endgenerate
@@ -253,32 +293,108 @@ assign boot_rom_HTRANS = slv_htrans_out;
 assign boot_rom_HWRITE = slv_hwrite_out;
 assign boot_rom_HREADY = slv_hready_in; // Assuming shared hready for all
 
+// Slave 3: FFT Wrapper connections
+wire        fft_HSEL;
+wire [31:0] fft_HADDR;
+wire [1:0]  fft_HTRANS;
+wire        fft_HWRITE;
+wire [2:0]  fft_HSIZE;
+// wire [2:0]  fft_HBURST; //changed by agy
+wire [31:0] fft_HWDATA;
+// wire [3:0]  fft_HPROT; //changed by agy
+wire        fft_HREADY;
+// wire [3:0]  fft_HMASTER; //changed by agy
+// wire        fft_HMASTLOCK; //changed by agy
+wire        fft_HREADYOUT;
+wire [1:0]  fft_HRESP;
+wire [31:0] fft_HRDATA;
+// wire [15:0] fft_HSPLIT; //changed by agy
+wire        fft_irq;
+
+assign fft_HSEL      = slv_hsel[3];
+assign fft_HADDR     = slv_haddr_out;
+assign fft_HTRANS    = slv_htrans_out;
+assign fft_HWRITE    = slv_hwrite_out;
+assign fft_HSIZE     = slv_hsize_out;
+// assign fft_HBURST    = slv_hburst_out; //changed by agy
+assign fft_HWDATA    = slv_hwdata_out;
+// assign fft_HPROT     = slv_hprot_out; //changed by agy
+assign fft_HREADY    = slv_hready_in;
+// assign fft_HMASTER   = slv_hmaster_out; //changed by agy
+// assign fft_HMASTLOCK = slv_hmastlock_out; //changed by agy
+
+// Slave 4: Scratchpad RAM connections
+wire        scratch_HSEL;
+wire [31:0] scratch_HADDR;
+wire [1:0]  scratch_HTRANS;
+wire        scratch_HWRITE;
+wire [2:0]  scratch_HSIZE;
+// wire [2:0]  scratch_HBURST; //changed by agy
+wire [31:0] scratch_HWDATA;
+// wire [3:0]  scratch_HPROT; //changed by agy
+wire        scratch_HREADY;
+wire        scratch_HREADYOUT;
+wire [1:0]  scratch_HRESP;
+wire [31:0] scratch_HRDATA;
+
+assign scratch_HSEL   = slv_hsel[4];
+assign scratch_HADDR  = slv_haddr_out;
+assign scratch_HTRANS = slv_htrans_out;
+assign scratch_HWRITE = slv_hwrite_out;
+assign scratch_HSIZE  = slv_hsize_out;
+// assign scratch_HBURST = slv_hburst_out; //changed by agy
+assign scratch_HWDATA = slv_hwdata_out;
+// assign scratch_HPROT  = slv_hprot_out; //changed by agy
+assign scratch_HREADY = slv_hready_in;
+
+// Slave 5: IFFT Wrapper connections
+wire        ifft_HSEL;
+wire [31:0] ifft_HADDR;
+wire [1:0]  ifft_HTRANS;
+wire        ifft_HWRITE;
+wire [2:0]  ifft_HSIZE;
+// wire [2:0]  ifft_HBURST; //changed by agy
+wire [31:0] ifft_HWDATA;
+// wire [3:0]  ifft_HPROT; //changed by agy
+wire        ifft_HREADY;
+// wire [3:0]  ifft_HMASTER; //changed by agy
+// wire        ifft_HMASTLOCK; //changed by agy
+wire        ifft_HREADYOUT;
+wire [1:0]  ifft_HRESP;
+wire [31:0] ifft_HRDATA;
+// wire [15:0] ifft_HSPLIT; //changed by agy
+wire        ifft_irq;
+
+assign ifft_HSEL      = slv_hsel[5];
+assign ifft_HADDR     = slv_haddr_out;
+assign ifft_HTRANS    = slv_htrans_out;
+assign ifft_HWRITE    = slv_hwrite_out;
+assign ifft_HSIZE     = slv_hsize_out;
+// assign ifft_HBURST    = slv_hburst_out; //changed by agy
+assign ifft_HWDATA    = slv_hwdata_out;
+// assign ifft_HPROT     = slv_hprot_out; //changed by agy
+assign ifft_HREADY    = slv_hready_in;
+// assign ifft_HMASTER   = slv_hmaster_out; //changed by agy
+// assign ifft_HMASTLOCK = slv_hmastlock_out; //changed by agy
+
+
+
 
 assign i2s_PWRITE = bridge_p_write; // From bridge to APB slave
 assign i2s_PWDATA = bridge_p_wdata; // From bridge to APB slave
 assign i2s_PADDR = bridge_p_addr;   // From bridge to APB slave
 assign i2s_PENABLE = bridge_p_enable; // From bridge to APB slave
+assign i2s_PSEL = bridge_p_selx[0]; // From bridge to APB slave
+assign bridge_pready[0] = i2s_PREADY; // From APB slave to bridge
+assign bridge_p_rdata[0] = i2s_PRDATA; // From APB slave to bridge
 
 assign i2s_tx_PWRITE = bridge_p_write; // From bridge to APB slave
 assign i2s_tx_PWDATA = bridge_p_wdata; // From bridge to APB slave
 assign i2s_tx_PADDR = bridge_p_addr;   // From bridge to APB slave
 assign i2s_tx_PENABLE = bridge_p_enable; // From bridge to APB slave
-
-
-//APB DECODER LOGIC:
-//for psel
-assign i2s_PSEL = (bridge_p_addr[31:16] == 16'h2000) ? bridge_p_selx : 1'b0;    // From bridge to APB slave
-assign i2s_tx_PSEL = (bridge_p_addr[31:16] == 16'h2001) ? bridge_p_selx : 1'b0;    // From bridge to APB slave
-//for prdtata:
-assign bridge_p_rdata =     (i2s_PSEL) ? i2s_PRDATA: // From APB slave to bridge
-                            (i2s_tx_PSEL) ? i2s_tx_PRDATA:  // From APB slave to bridge
-                            32'b0; // Default to 0 if no slave selected
-
-//Temporary tie off to make i2s always ready, it must be changed after we  make a better bridge.
-//nvm we just left it alone,
-//also pls look into how to connect irq for i2s and stuff @meera
-
-
+assign i2s_tx_PSEL = bridge_p_selx[1]; // From bridge to APB slave
+assign bridge_pready[1] = i2s_tx_PREADY; // From APB slave to bridge
+assign bridge_p_rdata[1] = i2s_tx_PRDATA; // From APB slave to bridge
 
 // assign slv_hrdata_v = {(NUM_SLVS-2){32'b0}, sram_HRDATA, bridge_h_rdata}; // To arbiter (only from slave 0)
 // assign slv_hresp_v = {(NUM_SLVS-1){2'b00}, bridge_h_resp}; // To arbiter (only from slave 0)
@@ -286,32 +402,55 @@ assign bridge_p_rdata =     (i2s_PSEL) ? i2s_PRDATA: // From APB slave to bridge
 // assign slv_hsplit_v = {(NUM_SLVS){16'b0}}; // No splits for now
 
 
-assign slv_hrdata_v[0] = bridge_h_rdata; // To arbiter (only from slave 0)
+assign slv_hrdata_v[0] = bridge_h_rdata; // To arbiter (only from slave 0) 
 assign slv_hresp_v[0] = {1'b0, bridge_h_resp}; // To arbiter (only from slave 0)
 assign slv_hready_in_v[0] = bridge_h_ready_out; // To arbiter (only from slave 0)
-assign slv_hsplit_v[0] = 0; // No splits for now
+// assign slv_hsplit_v[0] = 0; // No splits for now //changed by agy
 
 assign slv_hrdata_v[1] = sram_HRDATA; // To arbiter (only from slave 1)
 assign slv_hresp_v[1] = 2'b00; // OKAY response
 assign slv_hready_in_v[1] = sram_HREADYOUT; // Ready from SRAM
-assign slv_hsplit_v[1] = 0; // No splits for now
+// assign slv_hsplit_v[1] = 0; // No splits for now //changed by agy
 
 assign slv_hrdata_v[2] = boot_rom_HRDATA; // To arbiter (only from slave 2)
 assign slv_hresp_v[2] = boot_rom_HRESP; // From boot ROM
 assign slv_hready_in_v[2] = boot_rom_HREADYOUT; // From boot ROM
-assign slv_hsplit_v[2] = 0; // No splits for
+// assign slv_hsplit_v[2] = 0; // No splits for //changed by agy
+
+assign slv_hrdata_v[3] = fft_HRDATA; // To arbiter (only from slave 3)
+assign slv_hresp_v[3] = fft_HRESP;
+assign slv_hready_in_v[3] = fft_HREADYOUT;
+// assign slv_hsplit_v[3] = fft_HSPLIT; //changed by agy
+
+assign slv_hrdata_v[4] = scratch_HRDATA; // To arbiter (only from slave 4)
+assign slv_hresp_v[4] = scratch_HRESP;
+assign slv_hready_in_v[4] = scratch_HREADYOUT;
+// assign slv_hsplit_v[4] = 16'b0; //changed by agy
+
+assign slv_hrdata_v[5] = ifft_HRDATA; // To arbiter (only from slave 5)
+assign slv_hresp_v[5] = ifft_HRESP;
+assign slv_hready_in_v[5] = ifft_HREADYOUT;
+// assign slv_hsplit_v[5] = ifft_HSPLIT; //changed by agy
 
 generate
    genvar j;
-    for(j = 3; j<15; j = j+1) begin
-        assign slv_hrdata_v[j] = 0;
-        assign slv_hresp_v[j] = 0;
-        // assign slv_hready_in_v[j] = 0;
-        assign slv_hsplit_v[j] = 0;
+    for(j = 6; j<15; j = j+1) begin
+//        assign slv_hrdata_v[j] = 0;
+//        assign slv_hresp_v[j] = 0;
+         assign slv_hready_in_v[j] = 0;
+//      assign slv_hsplit_v[j] = 0; //changed by agy
     end
 
 endgenerate
 
+
+assign spi_PADDR = bridge_p_addr; // From bridge to APB slave
+assign spi_PWDATA = bridge_p_wdata; // From bridge to APB slave
+assign spi_PWRITE = bridge_p_write; // From bridge to APB slave
+assign spi_PSEL = bridge_p_selx[2]; // From bridge to APB slave
+assign spi_PENABLE = bridge_p_enable; // From bridge to APB slave
+assign bridge_pready[2] = spi_PREADY; // From APB slave to bridge
+assign bridge_p_rdata[2] = spi_PRDATA; // From APB slave to
 
 //////////////////////////////////////////////////////////////////////////////// INSTANTIATIONS ////////////////////////////////////////////////////////////////////////
 
@@ -325,82 +464,88 @@ picorv32 cpu (
     .mem_addr(cpu_mem_addr),
     .mem_wdata(cpu_mem_wdata),
     .mem_wstrb(cpu_mem_wstrb),
-    .mem_rdata(cpu_mem_rdata)
+    .mem_rdata(cpu_mem_rdata),
+    .mem_instr(cpu_mem_instr)
 );
 
 pico_to_ahb wrapper( .clk(clk), .resetn(rstn), 
-    .mem_valid(cpu_mem_valid), .mem_ready(cpu_mem_ready), .mem_addr(cpu_mem_addr), 
+    .mem_valid(cpu_mem_valid), .mem_ready(cpu_mem_ready), .mem_addr(cpu_mem_addr),
     .mem_wdata(cpu_mem_wdata), .mem_wstrb(cpu_mem_wstrb), .mem_rdata(cpu_mem_rdata),
+    .mem_instr(cpu_mem_instr),
 
-    .mst_haddr(cpu_haddr), .mst_htrans(cpu_htrans), .mst_hsize(cpu_hsize), .mst_hwrite(cpu_hwrite), .mst_hwdata(cpu_hwdata),
-    .mst_hready_out(cpu_hready), .mst_hrdata_out(cpu_hrdata), .mst_hresp_out(cpu_hresp), .mst_hbusreq(cpu_hbusreq),
-    .mst_hlock(cpu_hlock), .mst_hburst(cpu_hburst), .mst_hprot(cpu_hprot), .mst_hgrant(cpu_hgrant)
+    .mst_haddr(cpu_haddr), 
+    .mst_htrans(cpu_htrans), 
+    .mst_hsize(cpu_hsize), 
+    .mst_hwrite(cpu_hwrite), 
+    .mst_hwdata(cpu_hwdata),
+    .mst_hready_out(cpu_hready), 
+    .mst_hrdata_out(cpu_hrdata), 
+    .mst_hresp_out(cpu_hresp), 
+    .mst_hbusreq(cpu_hbusreq),
+    .mst_hgrant(cpu_hgrant)
+//     .mst_hlock(cpu_hlock), .mst_hburst(cpu_hburst), .mst_hprot(cpu_hprot),  //changed by agy
+
      );
 
 
 // Other masters (if any) would be assigned here
 
-ahb_arbiter #(
-    .NUM_ARB(0),
-    .NUM_ARB_MSTS(1),
-    .DEF_ARB_MST(0),
+ahb_decoder_and_arbiter #(
+    .NUM_ARB_MSTS(NUM_ARB_MSTS),
+    .DEF_ARB_MST(DEF_ARB_MST),
     .NUM_SLVS(NUM_SLVS),
-    .ALG_NUMBER(1),            //Round Robin
-    .ADDR_LOW_FLAT({416'b0, 32'h00000000, 32'h3000_0000, 32'h2000_0000}), // Base address of slave 1, 0
-    .ADDR_HIGH_FLAT({416'b0, 32'h0000FFFF,32'h3000_FFFF, 32'h200F_FFFF})
+
+    .ADDR_LOW_FLAT(ADDR_LOW_FLAT),
+    .ADDR_HIGH_FLAT(ADDR_HIGH_FLAT)
 ) 
 arbiter  
 (
     .hclk(clk),
     .hresetn(rstn),
-    .remap(remap),
 
     // Master interface
     .mst_hbusreq(mst_hbusreq),
-    .mst_hlock(mst_hlock),
-    .mst_haddr(mst_haddr),
-    .mst_hsize(mst_hsize),
     .mst_htrans(mst_htrans),
+    .mst_haddr(mst_haddr),
     .mst_hwrite(mst_hwrite),
-    .mst_hburst(mst_hburst),
-    .mst_hprot(mst_hprot),
     .mst_hwdata(mst_hwdata),
+    .mst_hsize(mst_hsize),
 
     // Slave interface
     .slv_hsel(slv_hsel),
-    .slv_haddr_out(slv_haddr_out),
-    .slv_hwrite_out(slv_hwrite_out),
-    .slv_htrans_out(slv_htrans_out),
-    .slv_hsize_out(slv_hsize_out),
-    .slv_hburst_out(slv_hburst_out),
-    .slv_hprot_out(slv_hprot_out),
-    .slv_hwdata_out(slv_hwdata_out),
-    .slv_hmaster_out(slv_hmaster_out),
-    .slv_hmastlock_out(slv_hmastlock_out),
-    .slv_hready_in(slv_hready_in),
+    .hready(slv_hready_in),
+    .sel_haddr(slv_haddr_out),
+    .sel_hwdata(slv_hwdata_out),
+    .sel_hwrite(slv_hwrite_out),
+    .sel_hsize(slv_hsize_out),
+    .sel_htrans(slv_htrans_out),
 
 // Feedback from slaves to arbiter
     .slv_hready_in_v(slv_hready_in_v),
-    .slv_hresp_v(slv_hresp_v),
-    .slv_hrdata_v(slv_hrdata_v),
-    .slv_hsplit_v(slv_hsplit_v),
+    .slv_hresp(slv_hresp_v),
+    .slv_hrdata(slv_hrdata_v),
 
     // Outputs to masters
     .mst_hgrant(mst_hgrant),
-    .mst_hready_out(mst_hready_out),
-    .mst_hresp_out(mst_hresp_out),
-    .mst_hrdata_out(mst_hrdata_out)
+    .slv_hready_mux(mst_hready_out),
+    .slv_hresp_mux(mst_hresp_out),
+    .slv_hrdata_mux(mst_hrdata_out)
 );
 
+//changed by agy
 AHB_to_APB_Bridge #(
               .DATA_WIDTH(32),
               .ADDR_WIDTH(32),
-              .TRAN_WIDTH(2)
+              .TRAN_WIDTH(2),
+              .NUM_APB_SLAVES(NUM_APB_SLAVES),
+              .SLAVE_ADDR_START(SLAVE_ADDR_START),
+              .SLAVE_ADDR_END(SLAVE_ADDR_END)
 
 )
 bridge (
     //inputs
     .h_clk(clk),
+    .pclk(pclk), // ADDED PCLK
     .h_reset_n(rstn),
     .h_write(bridge_h_write), // From arbiter to bridge
     .h_sel_apb(bridge_h_sel_apb), // Assuming slave 0 is the APB bridge
@@ -417,44 +562,12 @@ bridge (
     .p_selx(bridge_p_selx),   // To APB slave (not used in this simple bridge)
     .p_wdata(bridge_p_wdata),  // To APB slave (not used in this simple bridge)
     .p_addr(bridge_p_addr),    // To APB slave (not used in this simple bridge)
-    .h_rdata(bridge_h_rdata)   // To arbiter (not used in this simple bridge)
+    .h_rdata(bridge_h_rdata),   // To arbiter (not used in this simple bridge)
+    .pready(bridge_pready)
 
 );
 
-// // =======================================================================
-// // SHRIYA's AHB-TO-APB BRIDGE SUBSYSTEM
-// // =======================================================================
-// AHB_APB_top bridge (
-//     // AHB Slave Interface (Connected to Arbiter Slave 0)
-//     .Hclk      (clk),
-//     .Hresetn   (rstn),
-//     .Hwrite    (slv_hwrite_out),
-//     .Hreadyin  (slv_hready_in), // Arbiter's global ready line
-//     .Htrans    (slv_htrans_out),
-//     .Hwdata    (slv_hwdata_out),
-//     .Haddr     (slv_haddr_out),
-//     .Hreadyout (bridge_h_ready_out),
-//     .Hresp     (bridge_h_resp),
-//     .Hrdata    (bridge_h_rdata),
 
-//     // Shared APB Bus Signals
-//     .Penable   (bridge_p_enable),
-//     .Pwrite    (bridge_p_write),
-//     .Paddr     (bridge_p_addr),
-//     .Pwdata    (bridge_p_wdata),
-
-//     // Peripheral Selects (Decoded Internally!)
-//     .PSEL_I2S    (i2s_PSEL),
-//     .PSEL_GPIO   (i2s_tx_PSEL), // Hijacking the GPIO slot for I2S_TX
-//     .PSEL_Timers (),            // Unconnected/Floating for now
-//     .PSEL_WDT    (),            // Unconnected/Floating for now
-
-//     // Return Data and Handshakes
-//     .PRDATA_I2S    (i2s_PRDATA),     .PREADY_I2S    (i2s_PREADY),
-//     .PRDATA_GPIO   (i2s_tx_PRDATA),  .PREADY_GPIO   (i2s_tx_PREADY), // Hijacked!
-//     .PRDATA_Timers (32'b0),          .PREADY_Timers (1'b1),          // Tie-offs for unused ports for now
-//     .PRDATA_WDT    (32'b0),          .PREADY_WDT    (1'b1)           // Tie-offs for unused ports for now
-// );
 
 SRAM_1024x32_ahb_wrapper sram0 (
     .HCLK(clk),
@@ -516,8 +629,187 @@ boot_rom_ahb boot_rom (
     .HRESP(boot_rom_HRESP)
 );
 
+    // Shared RAM wires for FFT
+    wire        fft_ram_we_a;
+    wire [8:0]  fft_ram_addr_a;
+    wire [31:0] fft_ram_din_a;
+    wire [31:0] fft_ram_dout_a;
+    wire        fft_ram_we_b;
+    wire [8:0]  fft_ram_addr_b;
+    wire [31:0] fft_ram_din_b;
+    wire [31:0] fft_ram_dout_b;
+    wire        fft_busy;
+    
+    // Slave 3: FFT Accelerator Wrapper
+    nm32_fft_ahb_wrapper #(
+        .BASE_ADDR(32'h4000_0000),
+        .ADDR_MASK(32'h0000_0FFF)
+    ) fft_wrapper_inst (
+        .hclk(clk),
+        .hresetn(rstn),
+        
+        .slv_hsel(fft_HSEL),
+        .slv_haddr(fft_HADDR),
+        .slv_hwrite(fft_HWRITE),
+        .slv_htrans(fft_HTRANS),
+        .slv_hsize(fft_HSIZE),
+//         .slv_hburst(fft_HBURST), //changed by agy
+        .slv_hwdata(fft_HWDATA),
+//         .slv_hprot(fft_HPROT), //changed by agy
+        .slv_hready(fft_HREADY),
+//         .slv_hmaster(fft_HMASTER), //changed by agy
+//         .slv_hmastlock(fft_HMASTLOCK), //changed by agy
+        
+        .slv_hready_out(fft_HREADYOUT),
+        .slv_hresp(fft_HRESP),
+        .slv_hrdata(fft_HRDATA),
+//         .slv_hsplit(fft_HSPLIT), //changed by agy
+        .slv_err(),
+        
+        .fft_irq(fft_irq),
+        
+        .ram_we_a(fft_ram_we_a),
+        .ram_addr_a(fft_ram_addr_a),
+        .ram_din_a(fft_ram_din_a),
+        .ram_dout_a(fft_ram_dout_a),
+        .ram_we_b(fft_ram_we_b),
+        .ram_addr_b(fft_ram_addr_b),
+        .ram_din_b(fft_ram_din_b),
+        .ram_dout_b(fft_ram_dout_b),
+        .fft_busy(fft_busy)
+    );
+
+    // Shared RAM wires for IFFT
+    wire        ifft_ram_we_a;
+    wire [8:0]  ifft_ram_addr_a;
+    wire [31:0] ifft_ram_din_a;
+    wire [31:0] ifft_ram_dout_a;
+    wire        ifft_ram_we_b;
+    wire [8:0]  ifft_ram_addr_b;
+    wire [31:0] ifft_ram_din_b;
+    wire [31:0] ifft_ram_dout_b;
+    wire        ifft_busy;
+    
+    // Accelerator Port MUXing (FFT vs IFFT) based on busy signals
+    // Assuming they don't run at the same exact cycle
+    wire        accel_we_a   = fft_busy ? fft_ram_we_a   : ifft_ram_we_a;
+    wire [8:0]  accel_addr_a = fft_busy ? fft_ram_addr_a : ifft_ram_addr_a;
+    wire [31:0] accel_din_a  = fft_busy ? fft_ram_din_a  : ifft_ram_din_a;
+    
+    wire        accel_we_b   = fft_busy ? fft_ram_we_b   : ifft_ram_we_b;
+    wire [8:0]  accel_addr_b = fft_busy ? fft_ram_addr_b : ifft_ram_addr_b;
+    wire [31:0] accel_din_b  = fft_busy ? fft_ram_din_b  : ifft_ram_din_b;
+    
+    wire [31:0] accel_dout_a;
+    wire [31:0] accel_dout_b;
+    
+    assign fft_ram_dout_a = accel_dout_a;
+    assign fft_ram_dout_b = accel_dout_b;
+    
+    assign ifft_ram_dout_a = accel_dout_a;
+    assign ifft_ram_dout_b = accel_dout_b;
+
+    // Slave 4: Ping-Pong Shared RAM (Replaces Scratchpad)
+    ping_pong_ram scratchpad_sram (
+        .clk(clk),
+        .rstn(rstn),
+        
+        // AHB Slave Interface
+        .hsel(scratch_HSEL),
+        .haddr(scratch_HADDR),
+        .hwrite(scratch_HWRITE),
+        .htrans(scratch_HTRANS),
+        .hsize(scratch_HSIZE),
+        .hwdata(scratch_HWDATA),
+        .hready_in(scratch_HREADY),
+        .hready_out(scratch_HREADYOUT),
+        .hrdata(scratch_HRDATA),
+        
+        // Shared Accelerator Ports
+        .accel_we_a(accel_we_a),
+        .accel_addr_a(accel_addr_a),
+        .accel_din_a(accel_din_a),
+        .accel_dout_a(accel_dout_a),
+        
+        .accel_we_b(accel_we_b),
+        .accel_addr_b(accel_addr_b),
+        .accel_din_b(accel_din_b),
+        .accel_dout_b(accel_dout_b)
+    );
+
+    // Slave 5: IFFT Accelerator Wrapper
+    nm32_ifft_ahb_wrapper #(
+        .BASE_ADDR(32'h6000_0000),
+        .ADDR_MASK(32'h0000_0FFF)
+    ) ifft_wrapper_inst (
+        .hclk(clk),
+        .hresetn(rstn),
+        
+        .slv_hsel(ifft_HSEL),
+        .slv_haddr(ifft_HADDR),
+        .slv_hwrite(ifft_HWRITE),
+        .slv_htrans(ifft_HTRANS),
+        .slv_hsize(ifft_HSIZE),
+//         .slv_hburst(ifft_HBURST), //changed by agy
+        .slv_hwdata(ifft_HWDATA),
+//         .slv_hprot(ifft_HPROT), //changed by agy
+        .slv_hready(ifft_HREADY),
+//         .slv_hmaster(ifft_HMASTER), //changed by agy
+//         .slv_hmastlock(ifft_HMASTLOCK), //changed by agy
+        
+        .slv_hready_out(ifft_HREADYOUT),
+        .slv_hresp(ifft_HRESP),
+        .slv_hrdata(ifft_HRDATA),
+//         .slv_hsplit(ifft_HSPLIT), //changed by agy
+        .slv_err(),
+        
+        .ifft_irq(ifft_irq),
+        
+        .ram_we_a(ifft_ram_we_a),
+        .ram_addr_a(ifft_ram_addr_a),
+        .ram_din_a(ifft_ram_din_a),
+        .ram_dout_a(ifft_ram_dout_a),
+        .ram_we_b(ifft_ram_we_b),
+        .ram_addr_b(ifft_ram_addr_b),
+        .ram_din_b(ifft_ram_din_b),
+        .ram_dout_b(ifft_ram_dout_b),
+        .ifft_busy(ifft_busy)
+    );
 
 
+
+    apb_spi_master #(
+        .BUFFER_DEPTH(SPI_BUF_DEPTH),
+        .APB_ADDR_WIDTH(4)
+    ) spi_inst (
+    .HCLK   (pclk),
+    .HRESETn(rstn),
+    .PADDR  (spi_PADDR[11:0]),
+    .PWDATA (spi_PWDATA),
+    .PWRITE (spi_PWRITE),
+    .PSEL   (spi_PSEL),
+    .PENABLE(spi_PENABLE),
+    .PRDATA (spi_PRDATA),
+    .PREADY (spi_PREADY),
+    .PSLVERR(spi_PSLVERR),
+
+    .events_o(spi_events),
+
+    .spi_clk (spi_clk),
+    .spi_csn0(spi_csn[0]),
+    .spi_csn1(spi_csn[1]),
+    .spi_csn2(spi_csn[2]),
+    .spi_csn3(spi_csn[3]),
+    .spi_mode(spi_mode),
+    .spi_sdo0(spi_sdo[0]),
+    .spi_sdo1(spi_sdo[1]),
+    .spi_sdo2(spi_sdo[2]),
+    .spi_sdo3(spi_sdo[3]),
+    .spi_sdi0(spi_sdi[0]),
+    .spi_sdi1(spi_sdi[1]),
+    .spi_sdi2(spi_sdi[2]),
+    .spi_sdi3(spi_sdi[3])
+    );
 // SIMPLE MEMORY (TEMP)
 // reg [31:0] memory [0:1023];+
 

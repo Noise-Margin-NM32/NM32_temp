@@ -1,2 +1,0 @@
-Time resolution is 1 ps
-WARNING: File audio_in.txt referenced on /home/omkar/FFT_Accelerator/nm32_fft_top.v at line 51 cannot be opened for reading. Please ensure that this file is available in the current working directory.

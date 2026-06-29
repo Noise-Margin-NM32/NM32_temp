@@ -80,7 +80,7 @@ module EF_I2S_TX_APB #(
     wire apb_we    = PWRITE & apb_valid;
     wire apb_re    = (~PWRITE) & apb_valid;
 
-    assign PREADY = 1'b1;
+    assign PREADY = 1'b1; // Ensure PREADY is synchronized with PCLK
 
     // ------------------------------------------------------------
     // Registers

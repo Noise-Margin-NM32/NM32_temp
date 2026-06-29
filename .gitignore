@@ -1,0 +1,15 @@
+*.log
+*.jou
+*.pb
+*.wdb
+*.wdf
+*.wcfg
+*.dcp
+*.vds
+__pycache__/
+*.cache/
+*.sim/
+*.log
+*.jou
+*.str
+.Xil/

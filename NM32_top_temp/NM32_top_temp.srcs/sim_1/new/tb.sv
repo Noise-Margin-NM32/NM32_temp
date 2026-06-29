@@ -285,7 +285,7 @@
         assign sdi = sdi_reg;
 
 
-        assign spi_mode = 2'b00; // SPI Mode 0 (CPOL=0, CPHA=0)
+        // spi_mode is driven by the DUT output now
 
         initial begin
             $readmemh("./../../../../../firmware/audio_in.txt", audio_in_mem);
@@ -369,10 +369,9 @@
             // --- SAFETY TIMEOUT ---
             // Because your C code ends in an infinite while(1) loop, 
             // the simulation will run forever if you click "Run All".
-            // This command forces Vivado to stop after 1 millisecond.
-            // (1 ms is plenty of time for a 100MHz CPU to run the test)
+            // This command forces Vivado to stop after a timeout.
             // --- SAFETY TIMEOUT ---
-            #480000000; // 48.0ms (4,800,000 cycles at 100MHz)
+            #800000000; // 800.0ms (80,000,000 cycles at 100MHz)
             
             $display("--------------------------------------------------");
             $display(" Simulation reached timeout and finished safely.");
@@ -383,11 +382,9 @@
 
 
         // ---------------------------------------------------------
-        // 6. CPU Instruction & Memory Tracer
+        // 6. CPU Instruction & Memory Tracer (Disabled for Speed)
         // ---------------------------------------------------------
-        // ---------------------------------------------------------
-        // 6. CPU Instruction & Memory Tracer
-        // ---------------------------------------------------------
+        /*
         always @(posedge clk) begin
             if (dut.cpu_mem_valid && dut.cpu_mem_ready) begin
                 if (dut.cpu_mem_wstrb != 4'b0000) begin
@@ -424,27 +421,6 @@
             $display("Time=%0t: [I2S WS EDGE] sck=%b, ws=%b, sdo=%b, sdi=%b", $time, rx_sck, rx_ws, sdo, sdi);
         end
 
-        // Monitor APB bridge transactions
-        // always @(posedge clk) begin
-        //     if (dut.bridge.p_selx || dut.bridge.p_enable || dut.bridge.state != 0) begin
-        //         $display("Time=%0t: [BRIDGE] state=%d sel=%b en=%b addr=0x%08h wdata=0x%08h rdata=0x%08h write=%b h_ready_out=%b h_rdata=0x%08h rx_fifo_rdata=0x%08h rx_empty=%b rx_fifo_rd=%b",
-        //             $time,
-        //             dut.bridge.state,
-        //             dut.bridge.p_selx,
-        //             dut.bridge.p_enable,
-        //             dut.bridge.p_addr,
-        //             dut.bridge.p_wdata,
-        //             dut.bridge.p_rdata,
-        //             dut.bridge.p_write,
-        //             dut.bridge.h_ready_out,
-        //             dut.bridge.h_rdata,
-        //             dut.i2s_apb.instance_to_wrap.fifo_rdata,
-        //             dut.i2s_apb.instance_to_wrap.fifo_empty,
-        //             dut.i2s_apb.instance_to_wrap.fifo_rd
-        //         );
-        //     end
-        // end
-
         // ---------------------------------------------------------
         // 6b. Cycle-by-Cycle CPU-AHB Debug Tracer
         // ---------------------------------------------------------
@@ -460,6 +436,54 @@
             end
         end
 
+        always @(posedge clk) begin
+            if ($time > 9140000 && $time < 9160000) begin
+                $display("Time=%0t | rstn=%b | state=%b valid=%b ready=%b addr=0x%h | htrans=%b haddr=0x%h hready_out=%b | sram_sel=%b sram_ready=%b sram_rdata=0x%h",
+                    $time, rstn,
+                    dut.wrapper.state, dut.cpu_mem_valid, dut.cpu_mem_ready, dut.cpu_mem_addr,
+                    dut.cpu_htrans, dut.cpu_haddr, dut.cpu_hready,
+                    dut.sram_HSEL, dut.sram_HREADY, dut.sram_HRDATA);
+            end
+        end
+        */
+ 
+        always @(posedge clk) begin
+            if (dut.cpu.trap) begin
+                $display("Time=%0t: [CPU] TRAP DETECTED! Illegal instruction or crash!", $time);
+                $finish;
+            end
+        end
+
+        // Check if CPU is stuck
+        integer last_insn_time = 0;
+        always @(posedge clk) begin
+            if (dut.cpu_mem_valid && dut.cpu_mem_ready) begin
+                last_insn_time = $time;
+            end
+            // CPU should not stall for more than 50 us
+            if ($time - last_insn_time > 50000000) begin
+                $display("Time=%0t: [WATCHDOG] CPU stuck! No bus transactions for 50us! Last transaction at %0t.", $time, last_insn_time);
+                $display("Current PC / Addr = 0x%08h", dut.cpu_mem_addr);
+                $finish;
+            end
+        end
+
+        always @(posedge clk) begin
+            // $time is in ns (timescale 1ns/1ps). 16ms = 16,000,000 ns
+            if ($time > 16050000 && dut.cpu_mem_valid && dut.cpu_mem_ready && dut.cpu_mem_wstrb == 0 && dut.cpu_mem_addr[31:28] == 4'h3) begin
+                $display("Time=%0t: [CPU FETCH >16.05ms] PC=0x%08h", $time, dut.cpu_mem_addr);
+            end
+        end
+ 
+        always @(posedge clk) begin
+            if (dut.cpu_mem_valid && dut.cpu_mem_ready && (dut.cpu_mem_addr[31:28] == 4'h4 || dut.cpu_mem_addr[31:28] == 4'h5 || dut.cpu_mem_addr[31:28] == 4'h6)) begin
+                $display("Time=%0t: [ACCEL ACCESS] Addr=0x%08h Write=%b Data=0x%08h Wstrb=%b", 
+                         $time, dut.cpu_mem_addr, dut.cpu_mem_wstrb != 4'b0000, 
+                         (dut.cpu_mem_wstrb != 4'b0000) ? dut.cpu_mem_wdata : dut.cpu_mem_rdata, 
+                         dut.cpu_mem_wstrb);
+            end
+        end
+ 
         // ---------------------------------------------------------
         // 7. Auto-Verification and Frame Dumping Logic
         // ---------------------------------------------------------

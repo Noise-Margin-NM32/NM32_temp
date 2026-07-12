@@ -10,7 +10,14 @@
 #define I2S_RX_BASE    0x20000000
 #define I2S_TX_BASE    0x20010000
 #define SPI_BASE_ADDR   0x20020000
+#define DMA_BASE        0x20030000
 
+#define DMA_SRC        (*((volatile uint32_t*)(DMA_BASE + 0x00)))
+#define DMA_DST        (*((volatile uint32_t*)(DMA_BASE + 0x04)))
+#define DMA_LEN        (*((volatile uint32_t*)(DMA_BASE + 0x08)))
+#define DMA_CTRL       (*((volatile uint32_t*)(DMA_BASE + 0x0C)))
+#define DMA_STATUS     (*((volatile uint32_t*)(DMA_BASE + 0x10)))
+#define DMA_CLR        (*((volatile uint32_t*)(DMA_BASE + 0x14)))
 #define I2S_RX_DATA    (*((volatile uint32_t*)(I2S_RX_BASE + 0x00)))
 #define I2S_RX_PR      (*((volatile uint32_t*)(I2S_RX_BASE + 0x04)))
 #define I2S_RX_CTRL    (*((volatile uint32_t*)(I2S_RX_BASE + 0x10)))
@@ -78,6 +85,18 @@ static inline uint32_t bit_reverse(uint32_t val) {
     return rev_idx;
 }
 
+static inline uint32_t get_cycles() {
+    uint32_t cycles;
+    asm volatile ("rdcycle %0" : "=r"(cycles));
+    return cycles;
+}
+
+void cpu_memcpy(volatile uint32_t* dst, volatile uint32_t* src, uint32_t len) {
+    for (uint32_t i = 0; i < len; i++) {
+        dst[i] = src[i];
+    }
+}
+
 int main() {
     volatile uint32_t* fft_twiddle = (volatile uint32_t*)(FFT_BASE + 0x0800);
     volatile uint32_t* ifft_twiddle = (volatile uint32_t*)(IFFT_BASE + 0x0800);
@@ -85,6 +104,36 @@ int main() {
     // Direct Access to Bank 0 and Bank 1 via AHB mapping
     volatile uint32_t* sram_bank0 = (volatile uint32_t*)(PING_PONG_BASE);
     volatile uint32_t* sram_bank1 = (volatile uint32_t*)(PING_PONG_BASE + 0x0800);
+
+    // --- DMA Benchmarking ---
+    volatile uint32_t* src_buf = sram_bank0;
+    volatile uint32_t* dst_buf = sram_bank1; 
+    uint32_t len = 256; // 256 words
+
+    // Initialize source
+    for (uint32_t i = 0; i < len; i++) src_buf[i] = i;
+
+    // Measure CPU Memcpy
+    uint32_t start_cycles = get_cycles();
+    cpu_memcpy(dst_buf, src_buf, len);
+    uint32_t end_cycles = get_cycles();
+    uint32_t cpu_cycles = end_cycles - start_cycles;
+
+    // Measure DMA Memcpy
+    start_cycles = get_cycles();
+    DMA_SRC = (uint32_t)src_buf;
+    DMA_DST = (uint32_t)dst_buf;
+    DMA_LEN = len;
+    DMA_CTRL = 1; // start DMA
+    while ((DMA_STATUS & 0x2) == 0); // wait for DONE status
+    end_cycles = get_cycles();
+    uint32_t dma_cycles = end_cycles - start_cycles;
+    DMA_CLR = 1; // clear DMA status
+
+    // Expose cycle counts for simulation tracking
+    *((volatile uint32_t*)(SRAM_BASE + 0x0F04)) = cpu_cycles;
+    *((volatile uint32_t*)(SRAM_BASE + 0x0F08)) = dma_cycles;
+    // ------------------------
 
     // 1. Initialize Twiddle Factors for FFT and IFFT first (CPU intensive)
     for (int i = 0; i < 256; i++) {
@@ -123,6 +172,7 @@ int main() {
     // 3. Process 4 frames continuously
     
     // Prime the very first frame: send dummy TX data to generate I2S clocks, and receive Frame 0 into Bank 0
+    uint32_t i2s_start = get_cycles();
     for (int i = 0; i < 512; i++) {
         while (I2S_TX_LEVEL > 14); I2S_TX_DATA = 0;
         while (I2S_TX_LEVEL > 14); I2S_TX_DATA = 0;   //????
@@ -136,6 +186,8 @@ int main() {
         while (I2S_RX_LEVEL == 0); 
         uint32_t dummy = I2S_RX_DATA;
     }
+    uint32_t i2s_end = get_cycles();
+    *((volatile uint32_t*)(SRAM_BASE + 0x0F0C)) = (i2s_end - i2s_start);
     
     // In-place bit reversal of the primed frame
     for (int i = 0; i < 512; i++) {
@@ -160,10 +212,17 @@ int main() {
         PING_PONG_CTRL = hardware_bank;
         
         // Start FFT (operates in-place on hw_ram)
+        uint32_t fft_start = get_cycles();
         FFT_CTRL = 1;
         
         // Wait for FFT engine completion
         while ((FFT_CTRL & 2) == 0);
+        uint32_t fft_end = get_cycles();
+        
+        // Only output benchmark on the first frame to avoid clutter
+        if (frame == 0) {
+            *((volatile uint32_t*)(SRAM_BASE + 0x0F10)) = (fft_end - fft_start);
+        }
 
         // Perform in-place bit reversal on hw_ram for IFFT input
         for (int i = 0; i < 512; i++) {

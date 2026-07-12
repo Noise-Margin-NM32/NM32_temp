@@ -30,7 +30,9 @@ module ahb_arbiter #(
 // Master inputs - signals sent back to masters from the arbiter
 
     // FIX 2: Registered grant lines to prevent combinatorial glitching upstream
-    output reg  [14:0] mst_hgrant,        // 15-bit one-hot encoded vector indicating which master currently won bus ownership
+    output wire [14:0] mst_hgrant,        // 15-bit one-hot encoded vector indicating which master currently won bus ownership
+
+
 
 // Multiplexed Master Status Output (Routes directly downstream to Decoder/Slaves)
 
@@ -51,6 +53,14 @@ module ahb_arbiter #(
     integer mux_i;   // Loop iterator bound strictly to the master signal multiplexing block
     integer grant_i; // Loop iterator bound strictly to the synchronous master grant register block
 
+    // Generate combinatorial one-hot grant signals
+    genvar g_idx;
+    generate
+        for (g_idx = 0; g_idx < 15; g_idx = g_idx + 1) begin : gen_hgrant
+            assign mst_hgrant[g_idx] = (grant_master == g_idx[3:0]);
+        end
+    endgenerate
+
     // arbitration
     reg  [3:0]  grant_master;   // Combinatorial index pointing to the immediate winner of the current arbitration check
     reg  [3:0]  turn;           // Round-robin tracking register storing the starting priority position for the next sweep cycle
@@ -65,17 +75,13 @@ module ahb_arbiter #(
     assign req_ored = |(mst_hbusreq & ((1 << NUM_ARB_MSTS) - 1));
 
     // -----------------------------------------------------------------------
-    // HARDCODED FAIR ROUND-ROBIN ARBITRATION UPDATE
+    // TRUE FAIR ROUND-ROBIN ARBITRATION UPDATE
     // -----------------------------------------------------------------------
     always @(*) begin
         grant_master = master_sel; // Hold the current address phase master selection as a base default fallback
 
         if (hready) begin // Only allow arbitration recalculations if the current slave transaction is not stalled
-            if (master_sel < NUM_ARB_MSTS[3:0] && mst_hbusreq[master_sel]) begin
-                grant_master = master_sel;  // Sticky rule: Keep the active master locked onto the bus if its request line is still asserted
-            end 
-            // If the current master drops its request, evaluate other pending requests via round-robin
-            else if (req_ored) begin // Check if any other unmasked master requests are active in the system
+            if (req_ored) begin // Check if any other unmasked master requests are active in the system
                 rr_found = 1'b0; // Reset search status flag to low before initiating the round-robin ring evaluation
                 for (arb_k = 0; arb_k < NUM_ARB_MSTS; arb_k = arb_k + 1) begin // Step sequentially through the configured master count
                     rr_idx = (turn + arb_k) % NUM_ARB_MSTS; // Calculate rotating priority index offset relative to the current 'turn' position
@@ -105,8 +111,8 @@ module ahb_arbiter #(
             master_sel    <= grant_master;     // Move the immediate arbitration winner into the active Address Phase position
             r_master_sel  <= master_sel;       // Shift the current address phase master down into the Data Phase layer
             
-            // FIX 3: Shift the starting point of the next round-robin loop step only when the active owner releases the bus
-            if (!mst_hbusreq[master_sel] && req_ored) begin // If owner dropped request and other masters are active...
+            // FIX 3: Shift the starting point of the next round-robin loop step on every beat
+            if (req_ored) begin // If other masters are active...
                 turn <= (grant_master + 1) % NUM_ARB_MSTS; // Move priority turn directly ahead of the winning master to guarantee fair access
             end // End turn increment check
         end // End active clock execution path
@@ -139,20 +145,5 @@ module ahb_arbiter #(
         end // End multiplexer search loop
     end // End always block
 
-    // -----------------------------------------------------------------------
-    // FIX 2: Registered grant lines
-    // Replaces the combinatorial generate block. mst_hgrant updates on the rising
-    // edge, gated by hready to stay in sync with the master_sel pipeline.
-    // On reset, the default master is pre-granted.
-    // -----------------------------------------------------------------------
-    always @(posedge hclk or negedge hresetn) begin // Synchronous block governing master flag grant feedback
-        if (!hresetn) begin // Check if system reset has been dropped
-            mst_hgrant <= 15'b1 << DEF_ARB_MST; // Perform one-hot shift to assert a pre-grant code to the default master index
-        end else if (hready) begin // If the system is not stalled by a wait-state...
-            for (grant_i = 0; grant_i < 15; grant_i = grant_i + 1) begin // Run through all 15 hardware master slots
-                mst_hgrant[grant_i] <= (grant_master == grant_i[3:0]); // Evaluate and capture a stable, registered one-hot grant flag bit
-            end // End grant bit generation loop
-        end // End register clock edge update check
-    end // End sequential block
 
 endmodule // End of ahb_arbiter module structure

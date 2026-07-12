@@ -33,7 +33,7 @@ module nm32_top(
     // SPI Master Ports
     output wire spi_clk,
     output wire [3:0] spi_csn,
-    input wire [1:0] spi_mode,
+    output wire [1:0] spi_mode,
     output wire [3:0] spi_sdo,
     input wire [3:0] spi_sdi
 );
@@ -42,7 +42,7 @@ module nm32_top(
 /////////////////////////////////           Wires and Parameters           ////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-localparam NUM_ARB_MSTS = 1; // Number of AHB masters in the system
+localparam NUM_ARB_MSTS = 2; // Number of AHB masters in the system
 localparam DEF_ARB_MST  = 0; // Default AHB master to be granted bus access when no other masters are requesting
 localparam NUM_SLVS = 6;
 
@@ -64,9 +64,9 @@ localparam i2s_DW = 32;
 
 // localparam SPI_BUF_DEPTH = 10;
 
-localparam NUM_APB_SLAVES = 3; // I2S, I2S_TX, SPI
-localparam [NUM_APB_SLAVES-1:0][31:0] SLAVE_ADDR_START = {32'h2002_0000, 32'h2001_0000, 32'h2000_0000};
-localparam [NUM_APB_SLAVES-1:0][31:0] SLAVE_ADDR_END   = {32'h2002_FFFF, 32'h2001_FFFF, 32'h2000_FFFF};
+localparam NUM_APB_SLAVES = 4; // I2S, I2S_TX, SPI, DMA
+localparam [NUM_APB_SLAVES-1:0][31:0] SLAVE_ADDR_START = {32'h2003_0000, 32'h2002_0000, 32'h2001_0000, 32'h2000_0000};
+localparam [NUM_APB_SLAVES-1:0][31:0] SLAVE_ADDR_END   = {32'h2003_FFFF, 32'h2002_FFFF, 32'h2001_FFFF, 32'h2000_FFFF};
 
 // wire remap;
 
@@ -226,6 +226,17 @@ wire [1:0]  boot_rom_HRESP;
 
 
 
+// DMA Wires
+wire        dma_irq;
+wire        dma_check;
+wire [31:0] dma_PADDR;
+wire [31:0] dma_PWDATA;
+wire        dma_PWRITE;
+wire        dma_PSEL;
+wire        dma_PENABLE;
+wire [31:0] dma_PRDATA;
+wire        dma_PREADY;
+
 ///////////////////////////////////////////////////////////////////////////TIE OFFS////////////////////////////////////////////////////////////////////////
 
 always @(posedge clk or negedge rstn) begin
@@ -251,7 +262,7 @@ assign mst_hwdata[0] = cpu_hwdata;
 
 generate
     genvar i;
-    for(i = 1; i<15; i = i+1) begin
+    for(i = 2; i<15; i = i+1) begin
         assign mst_hbusreq[i] = 1'b0;
 //         assign mst_hlock[i] = 1'b0; //changed by agy
         assign mst_htrans[i] = 2'b00; //changed by agy
@@ -452,20 +463,71 @@ assign spi_PENABLE = bridge_p_enable; // From bridge to APB slave
 assign bridge_pready[2] = spi_PREADY; // From APB slave to bridge
 assign bridge_p_rdata[2] = spi_PRDATA; // From APB slave to
 
+assign dma_PADDR = bridge_p_addr;
+assign dma_PWDATA = bridge_p_wdata;
+assign dma_PWRITE = bridge_p_write;
+assign dma_PSEL = bridge_p_selx[3];
+assign dma_PENABLE = bridge_p_enable;
+assign bridge_pready[3] = dma_PREADY;
+assign bridge_p_rdata[3] = dma_PRDATA;
+
+dma_controller dma_inst (
+    .PCLK(pclk),
+    .HCLK(clk),
+    .PRESETN(rstn),
+    .HRESETN(rstn),
+    
+    // APB Slave Interface
+    .PSEL(dma_PSEL),
+    .PENABLE(dma_PENABLE),
+    .PWRITE(dma_PWRITE),
+    .PADDR(dma_PADDR),
+    .PWDATA(dma_PWDATA),
+    .PRDATA(dma_PRDATA),
+    .PREADY(dma_PREADY),
+    
+    // AHB Master Interface
+    .HGRANT(mst_hgrant[1]),
+    .HBUSREQ(mst_hbusreq[1]),
+    .HADDR(mst_haddr[1]),
+    .HTRANS(mst_htrans[1]),
+    .HWRITE(mst_hwrite[1]),
+    .HREADY(mst_hready_out),
+    .irq(dma_irq),
+    .HRDATA(mst_hrdata_out),
+    .HWDATA(mst_hwdata[1]),
+    .check(dma_check)
+);
+assign mst_hsize[1] = 3'b010; // 32-bit transfers
+
 //////////////////////////////////////////////////////////////////////////////// INSTANTIATIONS ////////////////////////////////////////////////////////////////////////
 
 // Instantiate Pico
-picorv32 cpu (
+picorv32 #(
+    .ENABLE_MUL(1),
+    .ENABLE_DIV(0),
+    .ENABLE_IRQ(1),
+    .ENABLE_IRQ_QREGS(1),
+    .ENABLE_IRQ_TIMER(1),
+    .ENABLE_TRACE(0),
+    .REGS_INIT_ZERO(1),
+    .MASKED_IRQ(32'h0000_0000),
+    .LATCHED_IRQ(32'hffff_ffff),
+    .PROGADDR_RESET(32'h0000_0000),
+    .PROGADDR_IRQ(32'h0000_0010)
+) cpu (
     .clk(clk),
     .resetn(rstn),
-
+    .trap(trap),
     .mem_valid(cpu_mem_valid),
+    .mem_instr(cpu_mem_instr),
     .mem_ready(cpu_mem_ready),
     .mem_addr(cpu_mem_addr),
     .mem_wdata(cpu_mem_wdata),
     .mem_wstrb(cpu_mem_wstrb),
     .mem_rdata(cpu_mem_rdata),
-    .mem_instr(cpu_mem_instr)
+    .irq(32'b0),
+    .eoi()
 );
 
 pico_to_ahb wrapper( .clk(clk), .resetn(rstn), 
@@ -780,7 +842,7 @@ boot_rom_ahb boot_rom (
 
     apb_spi_master #(
         .BUFFER_DEPTH(SPI_BUF_DEPTH),
-        .APB_ADDR_WIDTH(4)
+        .APB_ADDR_WIDTH(12)
     ) spi_inst (
     .HCLK   (pclk),
     .HRESETn(rstn),

@@ -302,14 +302,22 @@ always @(posedge PCLK or negedge PRESETN) begin
     if (!PRESETN) begin
         src_addr_reg <= 0; dst_addr_reg <= 0;
         len_reg <= 0; ctrl_reg <= 0;
-    end else if (PSEL && PENABLE && PWRITE) begin
-        case (PADDR[7:0])
-            8'h00: src_addr_reg <= PWDATA;
-            8'h04: dst_addr_reg <= PWDATA;
-            8'h08: len_reg      <= PWDATA;
-            8'h0C: ctrl_reg     <= PWDATA;
-            8'h14: begin ctrl_reg[0] <= 0; status_reg <= 0; end
-        endcase
+    end else begin
+        if (PSEL && PENABLE && PWRITE) begin
+            case (PADDR[7:0])
+                8'h00: src_addr_reg <= PWDATA;
+                8'h04: dst_addr_reg <= PWDATA;
+                8'h08: len_reg      <= PWDATA;
+                8'h0C: ctrl_reg     <= PWDATA[2:0];
+                8'h14: begin ctrl_reg[0] <= 0; end
+            endcase
+        end
+        // Automatically clear ctrl_reg[0] once DMA has started so it doesn't loop
+        // We can check if status_reg became 1 (BUSY), but status_reg is in HCLK domain.
+        // For simplicity, let's clear ctrl_reg[0] when current_state != IDLE!
+        if (current_state != IDLE) begin
+            ctrl_reg[0] <= 1'b0;
+        end
     end
 end
  
@@ -336,7 +344,7 @@ end
 always @(*) begin
     case (current_state)
         IDLE:       next_state = ctrl_reg[0] ? BUS_REQ    : IDLE;
-        BUS_REQ:    next_state = HGRANT      ? ADDR_PHASE : BUS_REQ;
+        BUS_REQ:    next_state = (HGRANT && HREADY) ? ADDR_PHASE : BUS_REQ;
         ADDR_PHASE: next_state = READ_DATA;
         READ_DATA:  next_state = HREADY      ? WRITE_ADDR : READ_DATA;
         WRITE_ADDR: next_state = WRITE_DATA;
@@ -399,6 +407,9 @@ always @(posedge HCLK or negedge HRESETN) begin
                     dst_ptr    <= dst_addr_reg;
                     len_cnt    <= len_reg;
                     status_reg <= 32'h1;   // BUSY
+                end else if (PSEL && PENABLE && PWRITE && PADDR[7:0] == 8'h10 && PWDATA[0]) begin
+                    status_reg <= 32'h0;   // CLEAR STATUS from CPU write
+                    irq <= 1'b0;
                 end
             end
  

@@ -1,6 +1,6 @@
 # Define the RISC-V GCC toolchain prefix
-PREFIX ?= riscv32-unknown-elf-
-CC      = $(PREFIX)gcc
+PREFIX ?= riscv64-unknown-elf-
+CC      = riscv64-unknown-elf-gcc
 OBJCOPY = $(PREFIX)objcopy 
 OBJDUMP = $(PREFIX)objdump
 

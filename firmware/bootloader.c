@@ -30,8 +30,9 @@ uint32_t read_spi_flash_word(uint32_t flash_byte_offset) {
     SPI_REG_SPIDUM = 0;
 
     // 3. Load the standard SPI flash read command (0x03) and target address
-    SPI_REG_SPICMD = 0x03;
-    SPI_REG_SPIADR = flash_byte_offset;
+    // Shift command by 24 bits and address by 8 bits to align to MSB-first tx
+    SPI_REG_SPICMD = 0x03 << 24;
+    SPI_REG_SPIADR = flash_byte_offset << 8;
 
     // 4. Trigger the transaction: Assert Chip Select 0 and pulse the read enable bit
     // PWDATA[0] = spi_rd, PWDATA[11:8] = spi_csreg (Select CS0 -> 4'b0001)
@@ -58,7 +59,11 @@ void hardware_spi_bootloader(void) {
     uint32_t flash_offset = (uint32_t)src_flash - 0x80000000;
 
     while (dest_ram < &_text_ram_end) {
-        *dest_ram = read_spi_flash_word(flash_offset);
+        uint32_t val = read_spi_flash_word(flash_offset);
+        *dest_ram = ((val >> 24) & 0x000000FF) |
+                    ((val >> 8)  & 0x0000FF00) |
+                    ((val << 8)  & 0x00FF0000) |
+                    ((val << 24) & 0xFF000000);
         dest_ram++;
         flash_offset += 4;
     }
@@ -69,7 +74,11 @@ void hardware_spi_bootloader(void) {
     flash_offset = (uint32_t)src_flash - 0x80000000;
 
     while (dest_ram < &_data_ram_end) {
-        *dest_ram = read_spi_flash_word(flash_offset);
+        uint32_t val = read_spi_flash_word(flash_offset);
+        *dest_ram = ((val >> 24) & 0x000000FF) |
+                    ((val >> 8)  & 0x0000FF00) |
+                    ((val << 8)  & 0x00FF0000) |
+                    ((val << 24) & 0xFF000000);
         dest_ram++;
         flash_offset += 4;
     }

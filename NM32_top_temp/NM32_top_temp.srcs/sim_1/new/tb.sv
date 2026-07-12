@@ -476,15 +476,20 @@
         end
  
         always @(posedge clk) begin
-            if (dut.cpu_mem_valid && dut.cpu_mem_ready && (dut.cpu_mem_addr[31:28] == 4'h4 || dut.cpu_mem_addr[31:28] == 4'h5 || dut.cpu_mem_addr[31:28] == 4'h6)) begin
-                $display("Time=%0t: [ACCEL ACCESS] Addr=0x%08h Write=%b Data=0x%08h Wstrb=%b", 
+            if (dut.cpu_mem_valid && dut.cpu_mem_ready) begin
+                if (dut.cpu_mem_addr >= 32'h40000000 && dut.cpu_mem_addr < 32'h70000000) begin
+                    $display("Time=%0t: [ACCEL ACCESS] Addr=0x%08h Write=%b Data=0x%08h Wstrb=%b", 
                          $time, dut.cpu_mem_addr, dut.cpu_mem_wstrb != 4'b0000, 
                          (dut.cpu_mem_wstrb != 4'b0000) ? dut.cpu_mem_wdata : dut.cpu_mem_rdata, 
                          dut.cpu_mem_wstrb);
+                end
+                if ($time > 10486000) begin // 10.486 ms (just before the crash at 10.4865 ms)
+                    $display("Time=%0t: [CPU DEBUG] Addr=0x%08h Wstrb=%b Rdata=0x%08h", 
+                         $time, dut.cpu_mem_addr, dut.cpu_mem_wstrb, dut.cpu_mem_rdata);
+                    $display("Time=%0t: [SRAM DEBUG] mem[0x3B] = 0x%08h", $time, dut.sram0.SRAM_0.mem[8'h3B]);
+                end
             end
-        end
- 
-        // ---------------------------------------------------------
+        end  // ---------------------------------------------------------
         // 7. Auto-Verification and Frame Dumping Logic
         // ---------------------------------------------------------
         integer outfile_fft;
@@ -498,6 +503,18 @@
         always @(posedge clk) begin
             // The firmware writes to SRAM_BASE + 0x0F00 for handshake
             // Since SRAM_BASE is the main CPU memory, we check the AHB signals.
+            if (dut.sram_HWRITE && dut.sram_HSEL && dut.sram_HREADY && dut.sram_HADDR == 32'h30000F04) begin
+                $display("Time=%0t: [BENCHMARK] CPU Memcpy took %0d cycles", $time, dut.sram_HWDATA);
+            end
+            if (dut.sram_HWRITE && dut.sram_HSEL && dut.sram_HREADY && dut.sram_HADDR == 32'h30000F08) begin
+                $display("Time=%0t: [BENCHMARK] DMA Memcpy took %0d cycles", $time, dut.sram_HWDATA);
+            end
+            if (dut.sram_HWRITE && dut.sram_HSEL && dut.sram_HREADY && dut.sram_HADDR == 32'h30000F0C) begin
+                $display("Time=%0t: [BENCHMARK] I2S 512-sample collection took %0d cycles", $time, dut.sram_HWDATA);
+            end
+            if (dut.sram_HWRITE && dut.sram_HSEL && dut.sram_HREADY && dut.sram_HADDR == 32'h30000F10) begin
+                $display("Time=%0t: [BENCHMARK] FFT accelerator took %0d cycles", $time, dut.sram_HWDATA);
+            end
             if (dut.sram_HWRITE && dut.sram_HSEL && dut.sram_HREADY && dut.sram_HADDR == 32'h30000F00) begin
                 if (dut.sram_HWDATA == 32'h11111111 || 
                     dut.sram_HWDATA == 32'h22222222 || 

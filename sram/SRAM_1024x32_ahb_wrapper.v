@@ -50,63 +50,65 @@ module SRAM_1024x32_ahb_wrapper #(parameter AW = 12) (
 
 );
 
-// ram ports
-wire [31:0] DO;
-wire [31:0] DI;
-wire [31:0] BEN;
-wire [9:0] AD;
-wire EN;
-wire R_WB;
-wire CLKin;
-
-ram_ahb_controller #(.AW(AW)) ram_controller(
-    .HCLK(HCLK),
-    .HRESETn(HRESETn),
-    .HSEL(HSEL),
-    .HADDR(HADDR),
-    .HTRANS(HTRANS),
-    .HSIZE(HSIZE),
-    .HWDATA(HWDATA),
-    .HWRITE(HWRITE),
-    .HREADY(HREADY),
-    .HREADYOUT(HREADYOUT),
-    .HRDATA(HRDATA),
-    .DO(DO),
-    .DI(DI),
-    .BEN(BEN),
-    .AD(AD),
-    .EN(EN),
-    .R_WB(R_WB)
-);
-
-EF_SRAM_1024x32 SRAM_0 (
-`ifdef USE_POWER_PINS
-    .vgnd(VGND),
-    .vnb(VGND),
-    .vpb(VPWR),
-    .vpwra(VPWR),
-    .vpwrm(),
-    .vpwrp(VPWR),
-`endif
-    .vpwrac(1'b1),
-    .vpwrpc(1'b1),
-    // access ports
-    .DO(DO),
-    .DI(DI),
-    .BEN(BEN),
-    .AD(AD),
-    .EN(EN),
-    .R_WB(R_WB),
-    .CLKin(HCLK),
-    // scan ports
-    .TM(1'b0),
-    .SM(1'b0),
-    .ScanInCC(1'b0),
-    .ScanInDL(1'b0),
-    .ScanInDR(1'b0),
-    .ScanOutCC(),
-    .WLBI(1'b0),
-    .WLOFF(1'b0)
-);
+    // AHB Protocol Latch
+    reg [31:0] r_haddr;
+    reg       r_hwrite;
+    reg [2:0] r_hsize;
+    reg       r_active;
+    
+    wire ahb_active = HSEL && HREADY && (HTRANS == 2'b10 || HTRANS == 2'b11);
+    
+    always @(posedge HCLK or negedge HRESETn) begin
+        if (!HRESETn) begin
+            r_haddr <= 0;
+            r_hwrite <= 0;
+            r_hsize <= 0;
+            r_active <= 0;
+        end else begin
+            if (HREADY) begin
+                r_haddr <= HADDR;
+                r_hwrite <= HWRITE;
+                r_hsize <= HSIZE;
+                r_active <= ahb_active;
+            end
+        end
+    end
+    
+    assign HREADYOUT = 1'b1;
+    
+    // 32KB RAM (8192 x 32)
+    reg [31:0] mem [0:8191];
+    integer i;
+    initial begin
+        for (i = 0; i < 8192; i = i + 1) begin
+            mem[i] = 32'h00000000;
+        end
+    end
+    wire [12:0] word_addr = r_haddr[14:2];
+    
+    // Write Logic
+    always @(posedge HCLK) begin
+        if (r_active && r_hwrite) begin
+            if (r_hsize == 3'b000) begin // Byte
+                if (r_haddr[1:0] == 2'b00) mem[word_addr][7:0] <= HWDATA[7:0];
+                if (r_haddr[1:0] == 2'b01) mem[word_addr][15:8] <= HWDATA[15:8];
+                if (r_haddr[1:0] == 2'b10) mem[word_addr][23:16] <= HWDATA[23:16];
+                if (r_haddr[1:0] == 2'b11) mem[word_addr][31:24] <= HWDATA[31:24];
+            end else if (r_hsize == 3'b001) begin // Halfword
+                if (r_haddr[1] == 1'b0) mem[word_addr][15:0] <= HWDATA[15:0];
+                if (r_haddr[1] == 1'b1) mem[word_addr][31:16] <= HWDATA[31:16];
+            end else begin // Word
+                mem[word_addr] <= HWDATA;
+            end
+            if (r_haddr == 32'h30007FFC || r_haddr == 32'h30000FFC) begin
+                $display("Time=%0t: [SRAM WRITE] Addr=0x%08h WordAddr=0x%04x Data=0x%08h HSIZE=0x%x", $time, r_haddr, word_addr, HWDATA, r_hsize);
+            end
+        end
+    end
+    
+    // Read Logic
+    // For 0-wait state AHB, read data must be provided combinatorially during the data phase
+    // based on the registered address (r_haddr).
+    assign HRDATA = (r_active && !r_hwrite) ? mem[word_addr] : 32'h0;
 
 endmodule

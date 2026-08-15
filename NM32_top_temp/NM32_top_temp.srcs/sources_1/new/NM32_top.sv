@@ -35,7 +35,12 @@ module nm32_top(
     output wire [3:0] spi_csn,
     output wire [1:0] spi_mode,
     output wire [3:0] spi_sdo,
-    input wire [3:0] spi_sdi
+    input wire [3:0] spi_sdi,
+    
+    // GPIO Ports
+    input  wire [7:0] gpio_in,
+    output wire [7:0] gpio_out,
+    output wire [7:0] gpio_oe
 );
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -44,7 +49,7 @@ module nm32_top(
 
 localparam NUM_ARB_MSTS = 2; // Number of AHB masters in the system
 localparam DEF_ARB_MST  = 0; // Default AHB master to be granted bus access when no other masters are requesting
-localparam NUM_SLVS = 6;
+localparam NUM_SLVS = 7;
 
 localparam APB_NUM_SLVS = 2;
 
@@ -54,8 +59,8 @@ localparam DATA_WIDTH = 32;
 localparam SPI_BUF_DEPTH = 10;
 
 
-localparam [32*16-1:0] ADDR_LOW_FLAT  = {320'b0, 32'h6000_0000, 32'h5000_0000, 32'h4000_0000, 32'h0000_0000, 32'h3000_0000, 32'h2000_0000}; //ifft, scratchpad, fft, bootrom, sram, apbbridge
-localparam [32*16-1:0] ADDR_HIGH_FLAT = {320'b0, 32'h6000_0FFF, 32'h5000_3FFF, 32'h4000_0FFF, 32'h0000_FFFF, 32'h3000_FFFF, 32'h200F_FFFF};
+localparam [32*16-1:0] ADDR_LOW_FLAT  = {288'b0, 32'h7000_0000, 32'h6000_0000, 32'h5000_0000, 32'h4000_0000, 32'h0000_0000, 32'h3000_0000, 32'h2000_0000}; //clic, ifft, scratchpad, fft, bootrom, sram, apbbridge
+localparam [32*16-1:0] ADDR_HIGH_FLAT = {288'b0, 32'h7000_0FFF, 32'h6000_0FFF, 32'h5000_3FFF, 32'h4000_0FFF, 32'h0000_FFFF, 32'h3000_FFFF, 32'h200F_FFFF};
 
 localparam i2s_AW = 4;
 localparam i2s_DW = 32;
@@ -64,9 +69,9 @@ localparam i2s_DW = 32;
 
 // localparam SPI_BUF_DEPTH = 10;
 
-localparam NUM_APB_SLAVES = 4; // I2S, I2S_TX, SPI, DMA
-localparam [NUM_APB_SLAVES-1:0][31:0] SLAVE_ADDR_START = {32'h2003_0000, 32'h2002_0000, 32'h2001_0000, 32'h2000_0000};
-localparam [NUM_APB_SLAVES-1:0][31:0] SLAVE_ADDR_END   = {32'h2003_FFFF, 32'h2002_FFFF, 32'h2001_FFFF, 32'h2000_FFFF};
+localparam NUM_APB_SLAVES = 5; // GPIO, I2S, I2S_TX, SPI, DMA
+localparam [NUM_APB_SLAVES-1:0][31:0] SLAVE_ADDR_START = {32'h2004_0000, 32'h2003_0000, 32'h2002_0000, 32'h2001_0000, 32'h2000_0000};
+localparam [NUM_APB_SLAVES-1:0][31:0] SLAVE_ADDR_END   = {32'h2004_FFFF, 32'h2003_FFFF, 32'h2002_FFFF, 32'h2001_FFFF, 32'h2000_FFFF};
 
 // wire remap;
 
@@ -388,8 +393,25 @@ assign ifft_HREADY    = slv_hready_in;
 // assign ifft_HMASTER   = slv_hmaster_out; //changed by agy
 // assign ifft_HMASTLOCK = slv_hmastlock_out; //changed by agy
 
+// Slave 6: CLIC Wrapper connections
+wire        clic_HSEL;
+wire [31:0] clic_HADDR;
+wire [1:0]  clic_HTRANS;
+wire        clic_HWRITE;
+wire [2:0]  clic_HSIZE;
+wire [31:0] clic_HWDATA;
+wire        clic_HREADY;
+wire        clic_HREADYOUT;
+wire [1:0]  clic_HRESP;
+wire [31:0] clic_HRDATA;
 
-
+assign clic_HSEL      = slv_hsel[6];
+assign clic_HADDR     = slv_haddr_out;
+assign clic_HTRANS    = slv_htrans_out;
+assign clic_HWRITE    = slv_hwrite_out;
+assign clic_HSIZE     = slv_hsize_out;
+assign clic_HWDATA    = slv_hwdata_out;
+assign clic_HREADY    = slv_hready_in;
 
 assign i2s_PWRITE = bridge_p_write; // From bridge to APB slave
 assign i2s_PWDATA = bridge_p_wdata; // From bridge to APB slave
@@ -443,9 +465,13 @@ assign slv_hresp_v[5] = ifft_HRESP;
 assign slv_hready_in_v[5] = ifft_HREADYOUT;
 // assign slv_hsplit_v[5] = ifft_HSPLIT; //changed by agy
 
+assign slv_hrdata_v[6] = clic_HRDATA; // To arbiter (only from slave 6)
+assign slv_hresp_v[6] = {1'b0, clic_HRESP};
+assign slv_hready_in_v[6] = clic_HREADYOUT;
+
 generate
    genvar j;
-    for(j = 6; j<15; j = j+1) begin
+    for(j = 7; j<15; j = j+1) begin
 //        assign slv_hrdata_v[j] = 0;
 //        assign slv_hresp_v[j] = 0;
          assign slv_hready_in_v[j] = 0;
@@ -470,6 +496,24 @@ assign dma_PSEL = bridge_p_selx[3];
 assign dma_PENABLE = bridge_p_enable;
 assign bridge_pready[3] = dma_PREADY;
 assign bridge_p_rdata[3] = dma_PRDATA;
+
+// GPIO Wires and Connections
+wire [31:0] gpio_PADDR;
+wire [31:0] gpio_PWDATA;
+wire        gpio_PWRITE;
+wire        gpio_PSEL;
+wire        gpio_PENABLE;
+wire [31:0] gpio_PRDATA;
+wire        gpio_PREADY;
+wire        gpio_IRQ;
+
+assign gpio_PADDR = bridge_p_addr;
+assign gpio_PWDATA = bridge_p_wdata;
+assign gpio_PWRITE = bridge_p_write;
+assign gpio_PSEL = bridge_p_selx[4];
+assign gpio_PENABLE = bridge_p_enable;
+assign bridge_pready[4] = gpio_PREADY;
+assign bridge_p_rdata[4] = gpio_PRDATA;
 
 dma_controller dma_inst (
     .PCLK(pclk),
@@ -505,7 +549,7 @@ assign mst_hsize[1] = 3'b010; // 32-bit transfers
 // Instantiate Pico
 picorv32 #(
     .ENABLE_MUL(1),
-    .ENABLE_DIV(0),
+    .ENABLE_DIV(1),
     .ENABLE_IRQ(1),
     .ENABLE_IRQ_QREGS(1),
     .ENABLE_IRQ_TIMER(1),
@@ -526,8 +570,48 @@ picorv32 #(
     .mem_wdata(cpu_mem_wdata),
     .mem_wstrb(cpu_mem_wstrb),
     .mem_rdata(cpu_mem_rdata),
-    .irq(32'b0),
+    .irq(cpu_irq),
     .eoi()
+);
+
+// CLIC Output processing
+wire        clic_irq_valid;
+wire [3:0]  clic_irq_id;
+wire [2:0]  clic_irq_level;
+wire [31:0] cpu_irq;
+
+// Convert CLIC's vectored output into a standard 32-bit irq vector for picorv32
+assign cpu_irq = clic_irq_valid ? (32'b1 << clic_irq_id) : 32'b0;
+
+// Bundle peripheral interrupts for the CLIC
+wire [15:0] clic_intr_src;
+assign clic_intr_src[0] = i2s_IRQ;
+assign clic_intr_src[1] = i2s_tx_IRQ;
+assign clic_intr_src[2] = fft_irq;
+assign clic_intr_src[3] = ifft_irq;
+assign clic_intr_src[4] = dma_irq;
+assign clic_intr_src[5] = gpio_IRQ;
+assign clic_intr_src[15:6] = 10'b0;
+
+clic_ahb clic_inst (
+    .hclk(clk),
+    .hresetn(rstn),
+    
+    .hsel_i(clic_HSEL),
+    .haddr_i(clic_HADDR),
+    .htrans_i(clic_HTRANS),
+    .hwrite_i(clic_HWRITE),
+    .hsize_i(clic_HSIZE),
+    .hwdata_i(clic_HWDATA),
+    .hready_o(clic_HREADYOUT),
+    .hrdata_o(clic_HRDATA),
+    .hresp_o(clic_HRESP[0]),
+    
+    .intr_src_i(clic_intr_src),
+    
+    .irq_valid_o(clic_irq_valid),
+    .irq_id_o(clic_irq_id),
+    .irq_level_o(clic_irq_level)
 );
 
 pico_to_ahb wrapper( .clk(clk), .resetn(rstn), 
@@ -689,6 +773,22 @@ boot_rom_ahb boot_rom (
     .HREADYOUT(boot_rom_HREADYOUT),
     .HRDATA(boot_rom_HRDATA),
     .HRESP(boot_rom_HRESP)
+);
+
+EF_GPIO8_APB gpio_apb_inst (
+    .PCLK(pclk),
+    .PRESETn(rstn),
+    .PWRITE(gpio_PWRITE),
+    .PWDATA(gpio_PWDATA),
+    .PADDR(gpio_PADDR),
+    .PENABLE(gpio_PENABLE),
+    .PSEL(gpio_PSEL),
+    .PREADY(gpio_PREADY),
+    .PRDATA(gpio_PRDATA),
+    .IRQ(gpio_IRQ),
+    .io_in(gpio_in),
+    .io_out(gpio_out),
+    .io_oe(gpio_oe)
 );
 
     // Shared RAM wires for FFT

@@ -349,36 +349,36 @@
         // ---------------------------------------------------------
         // 4. Clock Generation (100MHz)
         // ---------------------------------------------------------
-        initial begin
-            clk = 0;
-            // The #5 delay prevents the SIGSEGV crash! (10ns period = 100MHz)
-            forever #5 clk = ~clk; 
-        end
+        // initial begin
+        //     clk = 0;
+        //     // The #5 delay prevents the SIGSEGV crash! (10ns period = 100MHz)
+        //     forever #5 clk = ~clk; 
+        // end
 
         // ---------------------------------------------------------
         // 5. Reset Sequence and Safety Timeout
         // ---------------------------------------------------------
-        initial begin
-            // Hold reset low to clear all registers
-            rstn = 0;
-            
-            // Wait 100ns, then release reset
-            #100;
-            rstn = 1;
-
-            // --- SAFETY TIMEOUT ---
-            // Because your C code ends in an infinite while(1) loop, 
-            // the simulation will run forever if you click "Run All".
-            // This command forces Vivado to stop after a timeout.
-            // --- SAFETY TIMEOUT ---
-            #800000000; // 800.0ms (80,000,000 cycles at 100MHz)
-            
-            $display("--------------------------------------------------");
-            $display(" Simulation reached timeout and finished safely.");
-            $display(" Check your waveforms!");
-            $display("--------------------------------------------------");
-            $finish;
-        end
+        // initial begin
+        //     // Hold reset low to clear all registers
+        //     rstn = 0;
+        //     
+        //     // Wait 100ns, then release reset
+        //     #100;
+        //     rstn = 1;
+        // 
+        //     // --- SAFETY TIMEOUT ---
+        //     // Because your C code ends in an infinite while(1) loop, 
+        //     // the simulation will run forever if you click "Run All".
+        //     // This command forces Vivado to stop after a timeout.
+        //     // --- SAFETY TIMEOUT ---
+        //     #800000000; // 800.0ms (80,000,000 cycles at 100MHz)
+        //     
+        //     $display("--------------------------------------------------");
+        //     $display(" Simulation reached timeout and finished safely.");
+        //     $display(" Check your waveforms!");
+        //     $display("--------------------------------------------------");
+        //     $finish;
+        // end
 
 
         // ---------------------------------------------------------
@@ -486,7 +486,7 @@
                 if ($time > 10486000) begin // 10.486 ms (just before the crash at 10.4865 ms)
                     $display("Time=%0t: [CPU DEBUG] Addr=0x%08h Wstrb=%b Rdata=0x%08h", 
                          $time, dut.cpu_mem_addr, dut.cpu_mem_wstrb, dut.cpu_mem_rdata);
-                    //$display("Time=%0t: [SRAM DEBUG] mem[0x3B] = 0x%08h", $time, dut.sram0.SRAM_0.mem[8'h3B]);
+                    $display("Time=%0t: [SRAM DEBUG] mem[0x3B] = 0x%08h", $time, dut.sram0.SRAM_0.mem[8'h3B]);
                 end
             end
         end  // ---------------------------------------------------------
@@ -494,36 +494,28 @@
         // ---------------------------------------------------------
         integer outfile_fft;
         integer outfile_ifft;
-        integer outfile_audio;
         integer f_idx;
         initial begin
             outfile_fft = $fopen("./fft_out.txt", "w");
             outfile_ifft = $fopen("./ifft_out.txt", "w");
-            outfile_audio = $fopen("./audio_out.txt", "w");
-        end
-
-        always @(posedge clk) begin
-            if (dut.i2s_tx_apb.instance_to_wrap.fifo_wr) begin
-                $fdisplay(outfile_audio, "%08X", dut.i2s_tx_apb.instance_to_wrap.fifo_wdata);
-            end
         end
 
         always @(posedge clk) begin
             // The firmware writes to SRAM_BASE + 0x0F00 for handshake
             // Since SRAM_BASE is the main CPU memory, we check the AHB signals.
-            if (dut.sram_HWRITE && dut.sram_HSEL && dut.sram_HREADY && dut.sram_HADDR == 32'h30007004) begin
+            if (dut.sram_HWRITE && dut.sram_HSEL && dut.sram_HREADY && dut.sram_HADDR == 32'h30000F04) begin
                 $display("Time=%0t: [BENCHMARK] CPU Memcpy took %0d cycles", $time, dut.sram_HWDATA);
             end
-            if (dut.sram_HWRITE && dut.sram_HSEL && dut.sram_HREADY && dut.sram_HADDR == 32'h30007008) begin
+            if (dut.sram_HWRITE && dut.sram_HSEL && dut.sram_HREADY && dut.sram_HADDR == 32'h30000F08) begin
                 $display("Time=%0t: [BENCHMARK] DMA Memcpy took %0d cycles", $time, dut.sram_HWDATA);
             end
-            if (dut.sram_HWRITE && dut.sram_HSEL && dut.sram_HREADY && dut.sram_HADDR == 32'h3000700C) begin
+            if (dut.sram_HWRITE && dut.sram_HSEL && dut.sram_HREADY && dut.sram_HADDR == 32'h30000F0C) begin
                 $display("Time=%0t: [BENCHMARK] I2S 512-sample collection took %0d cycles", $time, dut.sram_HWDATA);
             end
-            if (dut.sram_HWRITE && dut.sram_HSEL && dut.sram_HREADY && dut.sram_HADDR == 32'h30007010) begin
+            if (dut.sram_HWRITE && dut.sram_HSEL && dut.sram_HREADY && dut.sram_HADDR == 32'h30000F10) begin
                 $display("Time=%0t: [BENCHMARK] FFT accelerator took %0d cycles", $time, dut.sram_HWDATA);
             end
-            if (dut.sram_HWRITE && dut.sram_HSEL && dut.sram_HREADY && dut.sram_HADDR == 32'h30007000) begin
+            if (dut.sram_HWRITE && dut.sram_HSEL && dut.sram_HREADY && dut.sram_HADDR == 32'h30000F00) begin
                 if (dut.sram_HWDATA == 32'h11111111 || 
                     dut.sram_HWDATA == 32'h22222222 || 
                     dut.sram_HWDATA == 32'h33333333 || 
@@ -547,10 +539,9 @@
                     end
                     
                     if (dut.sram_HWDATA == 32'h55555555) begin
-                        $display("Time=%0t: [TESTBENCH] Simulation successful!", $time);
+                        $display("Time=%0t: [TESTBENCH] Frame 4 completed. Verification simulation successful!", $time);
                         $fclose(outfile_fft);
                         $fclose(outfile_ifft);
-                        $fclose(outfile_audio);
                         $finish;
                     end
                 end

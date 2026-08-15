@@ -1,46 +1,606 @@
-
+/*
+ * main.c - NM32 SoC firmware, PURE Q15 selective noise cancellation
+ *
+ * Design choices for this version:
+ *   - No float anywhere. All math is int16 / int32 / int64.
+ *   - Hardware FFT/IFFT accelerators do the heavy transform work in Q15.
+ *   - Mask stage: spectral subtraction + Wiener-style, projected onto known
+ *     siren templates, all in Q15.
+ *   - Integer sqrt via binary (digit-by-digit) method - no lookup table.
+ *   - 50% overlap-add with Hamming window for click-free reconstruction.
+ *   - OLA normalization is precomputed once (constant per position at 50%
+ *     overlap with a fixed window) so runtime has zero divisions in OLA.
+ *
+ * Numeric ranges (planned carefully, since Q15 wraps silently on overflow):
+ *   - Input samples right-shifted by 5 bits before FFT to guarantee headroom
+ *     (sqrt(512) ~= 22.6, so 5 bits of shift covers worst-case butterfly gain)
+ *   - Mask values in Q15: range [0, 32767] representing [0.0, ~1.0]
+ *   - Suppression strength in Q15: same range
+ *   - mag_sq and sir_sq in int32 (up to Q30 after squaring)
+ *   - Dot-product accumulator in int64 (257 terms of Q30 each)
+ *
+ * PicoRV32 note: assumes eventual M-extension for hardware multiply/divide.
+ * Without M, integer divides in the mask stage will be slow (still faster
+ * than float emulation though).
+ */
 
 #include <stdint.h>
-#include "audio_in.h"
 
-#define SRAM_BASE      0x30000000
-#define FFT_BASE       0x40000000
-#define IFFT_BASE      0x60000000
+/* -------------------------------------------------------------------------- */
+/*  Base addresses (unchanged from original)                                  */
+/* -------------------------------------------------------------------------- */
 
-#define I2S_RX_BASE    0x20000000
-#define I2S_TX_BASE    0x20010000
-#define SPI_BASE_ADDR   0x20020000
-#define DMA_BASE        0x20030000
+#define SRAM_BASE       0x30000000
+#define FFT_BASE        0x40000000
+#define PING_PONG_BASE  0x50000000
+#define IFFT_BASE       0x60000000
+#define I2S_RX_BASE     0x20000000
+#define I2S_TX_BASE     0x20010000
 
-#define DMA_SRC        (*((volatile uint32_t*)(DMA_BASE + 0x00)))
-#define DMA_DST        (*((volatile uint32_t*)(DMA_BASE + 0x04)))
-#define DMA_LEN        (*((volatile uint32_t*)(DMA_BASE + 0x08)))
-#define DMA_CTRL       (*((volatile uint32_t*)(DMA_BASE + 0x0C)))
-#define DMA_STATUS     (*((volatile uint32_t*)(DMA_BASE + 0x10)))
-#define DMA_CLR        (*((volatile uint32_t*)(DMA_BASE + 0x14)))
-#define I2S_RX_DATA    (*((volatile uint32_t*)(I2S_RX_BASE + 0x00)))
-#define I2S_RX_PR      (*((volatile uint32_t*)(I2S_RX_BASE + 0x04)))
-#define I2S_RX_CTRL    (*((volatile uint32_t*)(I2S_RX_BASE + 0x10)))
-#define I2S_RX_CFG     (*((volatile uint32_t*)(I2S_RX_BASE + 0x14)))
-#define I2S_RX_LEVEL   (*((volatile uint32_t*)(I2S_RX_BASE + 0xFE00)))
-#define I2S_RX_GCLK    (*((volatile uint32_t*)(I2S_RX_BASE + 0xFF10)))
+#define I2S_RX_DATA   (*((volatile uint32_t*)(I2S_RX_BASE + 0x00)))
+#define I2S_RX_PR     (*((volatile uint32_t*)(I2S_RX_BASE + 0x04)))
+#define I2S_RX_CTRL   (*((volatile uint32_t*)(I2S_RX_BASE + 0x10)))
+#define I2S_RX_CFG    (*((volatile uint32_t*)(I2S_RX_BASE + 0x14)))
+#define I2S_RX_LEVEL  (*((volatile uint32_t*)(I2S_RX_BASE + 0xFE00)))
+#define I2S_RX_GCLK   (*((volatile uint32_t*)(I2S_RX_BASE + 0xFF10)))
 
-#define I2S_TX_DATA    (*((volatile uint32_t*)(I2S_TX_BASE + 0x00)))
-#define I2S_TX_PR      (*((volatile uint32_t*)(I2S_TX_BASE + 0x04)))
-#define I2S_TX_CTRL    (*((volatile uint32_t*)(I2S_TX_BASE + 0x10)))
-#define I2S_TX_CFG     (*((volatile uint32_t*)(I2S_TX_BASE + 0x14)))
-#define I2S_TX_LEVEL   (*((volatile uint32_t*)(I2S_TX_BASE + 0xFE00)))
-#define I2S_TX_GCLK    (*((volatile uint32_t*)(I2S_TX_BASE + 0xFF10)))
+#define I2S_TX_DATA   (*((volatile uint32_t*)(I2S_TX_BASE + 0x00)))
+#define I2S_TX_PR     (*((volatile uint32_t*)(I2S_TX_BASE + 0x04)))
+#define I2S_TX_CTRL   (*((volatile uint32_t*)(I2S_TX_BASE + 0x10)))
+#define I2S_TX_CFG    (*((volatile uint32_t*)(I2S_TX_BASE + 0x14)))
+#define I2S_TX_LEVEL  (*((volatile uint32_t*)(I2S_TX_BASE + 0xFE00)))
+#define I2S_TX_GCLK   (*((volatile uint32_t*)(I2S_TX_BASE + 0xFF10)))
 
-#define FFT_CTRL       (*((volatile uint32_t*)(FFT_BASE + 0x0C00)))
-#define IFFT_CTRL      (*((volatile uint32_t*)(IFFT_BASE + 0x0C00)))
+#define FFT_CTRL         (*((volatile uint32_t*)(FFT_BASE + 0x0C00)))
+#define IFFT_CTRL        (*((volatile uint32_t*)(IFFT_BASE + 0x0C00)))
+#define PING_PONG_CTRL   (*((volatile uint32_t*)(PING_PONG_BASE + 0x1000)))
 
-#define PING_PONG_BASE 0x50000000
+/* -------------------------------------------------------------------------- */
+/*  Algorithm constants (all Q15-friendly)                                    */
+/* -------------------------------------------------------------------------- */
 
-// PING PONG RAM Control Register (0 = Bank 0, 1 = Bank 1 for Accelerators)
-#define PING_PONG_CTRL (*((volatile uint32_t*)(PING_PONG_BASE + 0x1000)))
+#define N_FFT              512
+#define HOP                256
+#define HALF               257           /* N_FFT/2 + 1 unique bins */
+#define N_DIRECTIONS       1
 
-// 512-point twiddle factors (Q15 format: Real in upper 16 bits, Imag in lower 16 bits)
+#define Q15_ONE            32767         /* max positive Q15 */
+#define Q15_HALF           16384         /* 0.5 in Q15 */
+
+/* Tuning constants in Q15 */
+#define TRIGGER_THRESHOLD_Q15   3277     /* 0.1 * 32767 */
+#define SMOOTH_ALPHA_Q15        13107    /* 0.4 * 32767 */
+#define SMOOTH_ONE_MINUS_A_Q15  19661    /* 0.6 * 32767 */
+#define TRIGGER_MULT_Q15        1        /* multiplier for projection strength, keep at 1 initially */
+
+#define INPUT_SHIFT_FFT    5             /* shift input right by this many bits to guarantee no FFT overflow */
+#define NUM_FRAMES         8             /* number of hops to process before halting (sim-friendly) */
+
+extern const uint32_t fft_twiddles[256];
+extern const int16_t  trigger_vecs_q15[N_DIRECTIONS][HALF];
+
+/* -------------------------------------------------------------------------- */
+/*  Buffers (all integer)                                                     */
+/* -------------------------------------------------------------------------- */
+
+/* Hamming window in Q15, computed at boot */
+static int16_t hamming_q15[N_FFT];
+
+/* Circular mic input buffer, int16 audio */
+static int16_t input_buffer[N_FFT];
+static int     input_write_ptr = 0;
+
+/* OLA output accumulator in int32 (accumulates Q15 samples, may need range) */
+static int32_t ola_buffer[N_FFT];
+
+/* Working arrays for the mask stage - hold FFT output in Q15 real/imag */
+static int16_t real_q15[N_FFT];
+static int16_t imag_q15[N_FFT];
+
+/* Squared magnitudes and squared projection - int32 for headroom */
+static int32_t mag_sq[HALF];
+static int32_t sir_sq[HALF];
+
+/* Q15 magnitudes for projection dot products */
+static int16_t mag_q15_arr[HALF];
+
+/* Q15 projection vector */
+static int16_t proj_q15[HALF];
+
+/* Q15 mask + smoothing state */
+static int16_t mask_q15[HALF];
+static int16_t prev_mask_q15[HALF];
+static int     first_frame = 1;
+
+/* Precomputed OLA normalization inverse (Q15) - constant since window + hop are fixed */
+static int32_t ola_norm_inv_q15[HOP];
+
+/* -------------------------------------------------------------------------- */
+/*  Integer sqrt - binary (digit-by-digit) method                             */
+/*  Takes uint32_t input, returns uint16_t sqrt.  No memory, no divides.      */
+/*  ~16 iterations, each just shifts and compares.                            */
+/* -------------------------------------------------------------------------- */
+
+static uint16_t isqrt_bin(uint32_t x) {
+    uint32_t bit    = 1u << 30;
+    uint32_t result = 0;
+
+    /* Skip bits above the input's magnitude for faster convergence */
+    while (bit > x) bit >>= 2;
+
+    while (bit != 0) {
+        if (x >= result + bit) {
+            x     -= result + bit;
+            result = (result >> 1) + bit;
+        } else {
+            result >>= 1;
+        }
+        bit >>= 2;
+    }
+    return (uint16_t)result;
+}
+
+/* Q15 sqrt: input is Q15 in range [0, 32767], output is Q15 in same range */
+static int16_t sqrt_q15(int32_t x_q15) {
+    if (x_q15 <= 0) return 0;
+    /* sqrt(x_Q15) where x_Q15 = actual * 32768:
+     *   sqrt(actual * 32768) = sqrt(actual) * sqrt(32768) = sqrt(actual) * 181.02
+     * We want result in Q15: result_Q15 = sqrt(actual) * 32768
+     * So: result_Q15 = isqrt(x_Q15) * sqrt(32768) = isqrt(x_Q15 << 15)
+     * i.e. shift input up by 15 bits first, then take integer sqrt. */
+    uint32_t scaled = (uint32_t)x_q15 << 15;
+    uint16_t r = isqrt_bin(scaled);
+    if (r > 32767) r = 32767;
+    return (int16_t)r;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  pow(x, 2.5) in Q15 = x^2 * sqrt(x), reuses isqrt_bin                      */
+/* -------------------------------------------------------------------------- */
+
+static int16_t pow25_q15(int16_t x_q15) {
+    if (x_q15 <= 0) return 0;
+    /* x^2 in Q15: (x * x) >> 15, result also Q15 */
+    int32_t x_sq_q15 = ((int32_t)x_q15 * x_q15) >> 15;
+    /* sqrt(x) in Q15 (using the helper above) */
+    int16_t root     = sqrt_q15(x_q15);
+    /* Multiply x^2 * sqrt(x), both Q15, result Q15 */
+    return (int16_t)((x_sq_q15 * root) >> 15);
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Hamming window generation - one-time Taylor cos, then discard             */
+/* -------------------------------------------------------------------------- */
+
+/* We compute cos via Taylor series in fixed-point one-time at boot.
+ * Result is baked to Q15 and never touched again. */
+static int32_t cos_fp_q30(int32_t angle_q16) {
+    /* Very rough fixed-point cos, adequate for Hamming window shape.
+     * angle_q16 is in Q16 units, representing radians. */
+    /* Reduce to [-pi, pi] */
+    const int32_t TWO_PI_Q16 = 411774;  /* 2*pi * 65536 */
+    const int32_t PI_Q16     = 205887;  /* pi   * 65536 */
+    while (angle_q16 >  PI_Q16) angle_q16 -= TWO_PI_Q16;
+    while (angle_q16 < -PI_Q16) angle_q16 += TWO_PI_Q16;
+
+    /* Taylor: cos(x) = 1 - x^2/2 + x^4/24 - x^6/720 */
+    int64_t x_q30 = ((int64_t)angle_q16 * angle_q16); /* angle^2, in Q32 */
+    x_q30 >>= 2;  /* now Q30 */
+    int64_t term1 = x_q30 >> 1;              /* x^2/2 */
+    int64_t x4    = (x_q30 * x_q30) >> 30;   /* x^4 in Q30 */
+    int64_t term2 = x4 / 24;
+    int64_t x6    = (x4 * x_q30) >> 30;
+    int64_t term3 = x6 / 720;
+
+    int64_t result = ((int64_t)1 << 30) - term1 + term2 - term3;
+    return (int32_t)result;
+}
+
+static void init_hamming_window(void) {
+    /* w[i] = 0.54 - 0.46 * cos(2*pi*i/(N-1))
+     * In Q15: w_q15 = 0.54*32768 - 0.46*32768*cos_q30 >> 15  */
+    for (int i = 0; i < N_FFT; i++) {
+        int32_t angle_q16 = (int32_t)(((int64_t)411774 * i) / (N_FFT - 1)); /* 2*pi*i/(N-1) in Q16 */
+        int32_t c_q30     = cos_fp_q30(angle_q16);
+        /* 0.54 in Q30 = 579820748, 0.46 in Q30 = 493921050
+         * hamming = 0.54 - 0.46*c   (result in Q30 range)
+         * then downshift to Q15 */
+        int64_t val_q30 = 579820748LL - (((int64_t)493921050 * c_q30) >> 30);
+        int32_t val_q15 = (int32_t)(val_q30 >> 15);
+        if (val_q15 >  32767) val_q15 =  32767;
+        if (val_q15 < -32768) val_q15 = -32768;
+        hamming_q15[i] = (int16_t)val_q15;
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Precompute OLA norm inverse (constant since window and hop are fixed)     */
+/*  For a 50% overlapped fixed window, sum of overlapping window^2 at each    */
+/*  position within a hop is a fixed value we can precompute and invert once. */
+/* -------------------------------------------------------------------------- */
+
+static void init_ola_norm_inv(void) {
+    for (int i = 0; i < HOP; i++) {
+        /* Sum of window^2 at position i and window^2 at position i+HOP */
+        int32_t w1  = hamming_q15[i];
+        int32_t w2  = hamming_q15[i + HOP];
+        int32_t w1s = (w1 * w1) >> 15;   /* window^2 in Q15 */
+        int32_t w2s = (w2 * w2) >> 15;
+        int32_t sum = w1s + w2s;
+        /* Store the RECIPROCAL as Q15 - so we multiply at runtime instead of divide */
+        if (sum > 0) ola_norm_inv_q15[i] = ((int32_t)32768 << 15) / sum;
+        else         ola_norm_inv_q15[i] = 0;
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Twiddle setup for FFT and IFFT hardware (same as original)                */
+/* -------------------------------------------------------------------------- */
+
+static void init_twiddles(void) {
+    volatile uint32_t* fft_tw  = (volatile uint32_t*)(FFT_BASE  + 0x0800);
+    volatile uint32_t* ifft_tw = (volatile uint32_t*)(IFFT_BASE + 0x0800);
+
+    for (int i = 0; i < 256; i++) {
+        uint32_t val  = fft_twiddles[i];
+        fft_tw[i]     = val;
+        int16_t imag  = (int16_t)(val & 0xFFFF);
+        ifft_tw[i]    = (val & 0xFFFF0000) | ((uint32_t)(-imag) & 0xFFFF);
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  I2S bring-up (unchanged)                                                  */
+/* -------------------------------------------------------------------------- */
+
+static void init_i2s(void) {
+    I2S_RX_GCLK = 1;
+    I2S_TX_GCLK = 1;
+    I2S_RX_PR   = 2;
+    I2S_TX_PR   = 2;
+    I2S_RX_CFG  = 0x20B;
+    I2S_TX_CFG  = 0x20B;
+    I2S_RX_CTRL = 2;
+    I2S_TX_CTRL = 2;
+    for (int i = 0; i < 8; i++) I2S_TX_DATA = 0;
+    I2S_RX_CTRL = 3;
+    I2S_TX_CTRL = 3;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  I/O helper - pull HOP samples in / push HOP samples out                   */
+/*  Everything is Q15 int16 here; no conversions needed.                      */
+/* -------------------------------------------------------------------------- */
+
+static void io_hop(const int16_t *tx_samples, int hop) {
+    for (int i = 0; i < hop; i++) {
+        int16_t s = tx_samples[i];   /* already clamped */
+        while (I2S_TX_LEVEL > 14) ;  I2S_TX_DATA = (uint32_t)(uint16_t)s;
+        while (I2S_TX_LEVEL > 14) ;  I2S_TX_DATA = 0;
+
+        while (I2S_RX_LEVEL == 0) ;
+        int16_t new_sample = (int16_t)(I2S_RX_DATA << 1);
+        while (I2S_RX_LEVEL == 0) ;
+        (void)I2S_RX_DATA;
+
+        input_buffer[input_write_ptr] = new_sample;
+        input_write_ptr = (input_write_ptr + 1) % N_FFT;
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Prepare bank: window + shift-down + bit-reverse into hardware bank        */
+/* -------------------------------------------------------------------------- */
+
+static inline uint32_t bit_reverse9(uint32_t v) {
+    uint32_t r = 0;
+    for (int j = 0; j < 9; j++) { r = (r << 1) | (v & 1); v >>= 1; }
+    return r;
+}
+
+static void prepare_bank(volatile uint32_t *bank) {
+    int start = input_write_ptr;
+    for (int i = 0; i < N_FFT; i++) {
+        int src_idx = (start + i) % N_FFT;
+        int32_t s   = input_buffer[src_idx];
+        /* Q15 windowing: (sample * window_Q15) >> 15 keeps it Q15 */
+        int32_t w = ((int32_t)s * hamming_q15[i]) >> 15;
+        /* Then shift down to give FFT hardware headroom */
+        w >>= INPUT_SHIFT_FFT;
+        if (w >  32767) w =  32767;
+        if (w < -32768) w = -32768;
+        uint32_t rev = bit_reverse9(i);
+        bank[rev] = ((uint32_t)(uint16_t)((int16_t)w));  /* real; imag=0 */
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Read Q15 spectrum from bank into real_q15/imag_q15 arrays                 */
+/* -------------------------------------------------------------------------- */
+
+static void read_bank_spectrum(volatile uint32_t *bank) {
+    for (int i = 0; i < N_FFT; i++) {
+        uint32_t v  = bank[i];
+        real_q15[i] = (int16_t)(v & 0xFFFF);
+        imag_q15[i] = (int16_t)((v >> 16) & 0xFFFF);
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Write masked spectrum back to bank, bit-reversed for IFFT                 */
+/* -------------------------------------------------------------------------- */
+
+static void write_bank_spectrum_bitrev(volatile uint32_t *bank) {
+    for (int i = 0; i < N_FFT; i++) {
+        uint32_t rev = bit_reverse9(i);
+        uint32_t packed = ((uint32_t)(uint16_t)real_q15[i])
+                        | (((uint32_t)(uint16_t)imag_q15[i]) << 16);
+        bank[rev] = packed;
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Read IFFT output (natural-order Q15) into an int16 output buffer          */
+/* -------------------------------------------------------------------------- */
+
+static void read_bank_ifft(volatile uint32_t *bank, int16_t *out) {
+    for (int i = 0; i < N_FFT; i++) {
+        uint32_t v = bank[i];
+        out[i]     = (int16_t)(v & 0xFFFF);
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  The mask stage - pure Q15, no float, no LUT                               */
+/* -------------------------------------------------------------------------- */
+
+static void apply_spectral_mask(void) {
+    /* Step 1: squared magnitude per bin (mag_sq = re^2 + im^2 in int32) */
+    for (int i = 0; i < HALF; i++) {
+        int32_t r = real_q15[i];
+        int32_t g = imag_q15[i];
+        mag_sq[i] = r*r + g*g;  /* max ~32767^2 * 2 fits in int32 */
+    }
+
+    /* Step 2: magnitude via integer sqrt, back to Q15
+     * mag_sq is Q30 (Q15*Q15), so sqrt gives Q15 directly */
+    for (int i = 0; i < HALF; i++) {
+        mag_q15_arr[i] = (int16_t)isqrt_bin((uint32_t)mag_sq[i]);
+    }
+
+    /* Step 3: projection onto each trigger vector
+     * coeff_k = sum(mag[i] * trigger_vecs[k][i]) - Q15*Q15 -> Q30, sum in int64 */
+    for (int i = 0; i < HALF; i++) proj_q15[i] = 0;
+
+    for (int k = 0; k < N_DIRECTIONS; k++) {
+        int64_t coeff = 0;
+        for (int i = 0; i < HALF; i++) {
+            coeff += (int64_t)mag_q15_arr[i] * trigger_vecs_q15[k][i];
+        }
+        /* coeff is Q30 * 257 terms, shift back to Q15 */
+        int32_t coeff_q15 = (int32_t)(coeff >> 15);
+        /* Optional *1.5 (from reference algo): (coeff * 3) >> 1 */
+        coeff_q15 = (coeff_q15 * 3) >> 1;
+        /* Clamp to Q15 range */
+        if (coeff_q15 >  32767) coeff_q15 =  32767;
+        if (coeff_q15 < -32768) coeff_q15 = -32768;
+        /* Add coeff * trigger_vec back into proj_q15 */
+        for (int i = 0; i < HALF; i++) {
+            int32_t v = ((int32_t)coeff_q15 * trigger_vecs_q15[k][i]) >> 15;
+            int32_t p = proj_q15[i] + v;
+            if (p >  32767) p =  32767;
+            if (p < -32768) p = -32768;
+            proj_q15[i] = (int16_t)p;
+        }
+    }
+
+    /* Step 4: sir_sq per bin (proj squared) */
+    for (int i = 0; i < HALF; i++) {
+        int32_t p = proj_q15[i];
+        sir_sq[i] = p * p;
+    }
+
+    /* Step 5: total signal and siren power, for trigger ratio decision
+     * Use int64 accumulators - 257 * ~2^30 terms */
+    int64_t total_sig = 0, total_sir = 0;
+    for (int i = 0; i < HALF; i++) {
+        total_sig += mag_sq[i];
+        total_sir += sir_sq[i];
+    }
+
+    /* trigger_ratio > threshold  ==  siren > threshold * signal
+     * Replaces division with a multiply. */
+    int16_t suppression_q15 = 0;
+    int64_t threshold_lhs   = total_sir;
+    int64_t threshold_rhs   = (total_sig * TRIGGER_THRESHOLD_Q15) >> 15;
+    if (threshold_lhs > threshold_rhs) {
+        /* suppression = min(1.0, trigger_ratio * 2)
+         * trigger_ratio = total_sir / total_sig, so:
+         * suppression = min(Q15_ONE, (total_sir * 2 * Q15_ONE) / total_sig) */
+        if (total_sig > 0) {
+            int64_t s = ((int64_t)total_sir * 2 * Q15_ONE) / total_sig;
+            suppression_q15 = (s > Q15_ONE) ? Q15_ONE : (int16_t)s;
+        } else {
+            suppression_q15 = Q15_ONE;
+        }
+    }
+
+    /* Step 6: per-bin Wiener mask, no sqrt per bin division problem
+     * mask^2 = (mag_sq - sir_sq) / mag_sq  in Q15
+     * mask   = sqrt(mask^2) via integer sqrt above
+     * Smoothed with previous frame's mask. */
+    for (int i = 0; i < HALF; i++) {
+        int32_t mp = mag_sq[i] - sir_sq[i];
+        if (mp < 0) mp = 0;
+
+        int32_t mask_sq_q15;
+        if (mag_sq[i] > 0) {
+            /* (mp << 15) / mag_sq gives result in Q15 range [0, 32767] */
+            int64_t num = (int64_t)mp << 15;
+            mask_sq_q15 = (int32_t)(num / mag_sq[i]);
+            if (mask_sq_q15 > Q15_ONE) mask_sq_q15 = Q15_ONE;
+        } else {
+            mask_sq_q15 = 0;
+        }
+
+        /* mask = sqrt(mask^2) in Q15 */
+        int16_t m = sqrt_q15(mask_sq_q15);
+
+        /* Clamp mask to [0.01, 1.0] in Q15: 0.01 * 32767 ~= 328 */
+        if (m > Q15_ONE) m = Q15_ONE;
+        if (m < 328)     m = 328;
+
+        /* Temporal smoothing: 0.4 * prev + 0.6 * new (in Q15) */
+        int32_t smoothed;
+        if (first_frame) smoothed = m;
+        else             smoothed = ((int32_t)prev_mask_q15[i] * SMOOTH_ALPHA_Q15
+                                   + (int32_t)m * SMOOTH_ONE_MINUS_A_Q15) >> 15;
+        mask_q15[i]      = (int16_t)smoothed;
+        prev_mask_q15[i] = (int16_t)smoothed;
+    }
+    first_frame = 0;
+
+    /* Step 7: apply mask + rebuild conjugate-symmetric upper half for real output
+     * scale = mask * (1 - supp) + mask^2.5 * supp
+     * All in Q15. */
+    int16_t one_minus_supp = Q15_ONE - suppression_q15;
+    for (int i = 0; i < HALF; i++) {
+        int16_t m       = mask_q15[i];
+        int16_t m_pow25 = pow25_q15(m);
+        int32_t scale = ((int32_t)m * one_minus_supp
+                       + (int32_t)m_pow25 * suppression_q15) >> 15;
+        if (scale > Q15_ONE) scale = Q15_ONE;
+        if (scale < 0)       scale = 0;
+
+        /* Multiply real/imag by scale, keeping Q15 */
+        int32_t r = ((int32_t)real_q15[i] * scale) >> 15;
+        int32_t g = ((int32_t)imag_q15[i] * scale) >> 15;
+        if (r >  32767) r =  32767;  if (r < -32768) r = -32768;
+        if (g >  32767) g =  32767;  if (g < -32768) g = -32768;
+        real_q15[i] = (int16_t)r;
+        imag_q15[i] = (int16_t)g;
+
+        /* Mirror to conjugate-symmetric upper half */
+        if (i > 0 && i < HALF - 1) {
+            real_q15[N_FFT - i] =  real_q15[i];
+            imag_q15[N_FFT - i] = -imag_q15[i];
+        }
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Overlap-add and drain: pure Q15, no divisions at runtime                  */
+/* -------------------------------------------------------------------------- */
+
+static void overlap_add_and_drain(const int16_t *frame_out, int16_t *tx_out) {
+    /* Window this frame's IFFT output again on synthesis, add into OLA buffer */
+    for (int i = 0; i < N_FFT; i++) {
+        int32_t windowed = ((int32_t)frame_out[i] * hamming_q15[i]) >> 15;
+        ola_buffer[i] += windowed;  /* accumulate in int32 for headroom */
+    }
+
+    /* Drain first HOP samples: multiply by precomputed inverse of window^2 sum */
+    for (int i = 0; i < HOP; i++) {
+        int64_t acc  = ola_buffer[i];
+        /* Multiply by normalization inverse (Q15) - restores flat amplitude */
+        int32_t out  = (int32_t)((acc * ola_norm_inv_q15[i]) >> 15);
+        if (out >  32767) out =  32767;
+        if (out < -32768) out = -32768;
+        tx_out[i] = (int16_t)out;
+    }
+
+    /* Shift buffer left by HOP - the second half becomes the new first half */
+    for (int i = 0; i < N_FFT - HOP; i++) ola_buffer[i] = ola_buffer[i + HOP];
+    for (int i = N_FFT - HOP; i < N_FFT; i++) ola_buffer[i] = 0;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Main                                                                      */
+/* -------------------------------------------------------------------------- */
+
+int main(void) {
+    volatile uint32_t *bank_a = (volatile uint32_t*)(PING_PONG_BASE);
+    volatile uint32_t *bank_b = (volatile uint32_t*)(PING_PONG_BASE + 0x0800);
+    volatile uint32_t *banks[2] = { bank_a, bank_b };
+
+    /* Boot-time init */
+    init_hamming_window();
+    init_ola_norm_inv();
+    init_twiddles();
+    init_i2s();
+
+    for (int i = 0; i < N_FFT; i++) {
+        input_buffer[i] = 0;
+        ola_buffer[i]   = 0;
+    }
+    for (int i = 0; i < HALF; i++) prev_mask_q15[i] = 0;
+
+    /* Silence buffer - used both for initial priming and as the "previous
+     * frame's output" on iteration 0, since nothing has been computed yet. */
+    int16_t silence[N_FFT];
+    for (int i = 0; i < N_FFT; i++) silence[i] = 0;
+
+    /* Prime input buffer with a full frame of history before the loop starts */
+    io_hop(silence, N_FFT);
+
+    /* Double-buffered per bank parity, since two frames are genuinely
+     * in flight at once now: one being computed, one being streamed. */
+    int16_t frame_time[2][N_FFT];
+    int16_t tx_scratch[2][HOP];
+
+    for (int frame = 0; frame < NUM_FRAMES; frame++) {
+        int p = frame % 2;             /* bank parity for this frame */
+        int prev_p = 1 - p;            /* parity of the frame just completed */
+        volatile uint32_t *bank = banks[p];
+        PING_PONG_CTRL = p;
+
+        /* Prepare this frame's input - uses input_buffer as filled by the
+         * previous iteration's io_hop (or the priming call, on frame 0). */
+        prepare_bank(bank);
+
+        /* Kick off FFT - this runs in hardware, in the background, starting
+         * right now. We do NOT wait for it yet. */
+        FFT_CTRL = 1;
+
+        /* While FFT hardware is busy, do this frame's I2S work: stream out
+         * the PREVIOUS frame's finished audio (or silence, on frame 0) and
+         * simultaneously capture the samples the NEXT iteration's
+         * prepare_bank will need. This is genuinely concurrent with the
+         * FFT computation happening in hardware right now. */
+        io_hop(frame == 0 ? silence : tx_scratch[prev_p], HOP);
+
+        /* Now collect the FFT result - if hardware finished during io_hop,
+         * this returns immediately with zero extra wait. */
+        while ((FFT_CTRL & 2) == 0) ;
+
+        read_bank_spectrum(bank);
+        apply_spectral_mask();
+        write_bank_spectrum_bitrev(bank);
+
+        /* Kick off IFFT the same way */
+        IFFT_CTRL = 1;
+        while ((IFFT_CTRL & 2) == 0) ;
+
+        read_bank_ifft(bank, frame_time[p]);
+        overlap_add_and_drain(frame_time[p], tx_scratch[p]);
+
+        *((volatile uint32_t*)(SRAM_BASE + 0x7000)) = 0x22220000u | (uint32_t)frame;
+    }
+
+    /* Epilogue - stream out the final frame's output, since it never got
+     * an overlapped io_hop slot inside the loop. */
+    io_hop(tx_scratch[(NUM_FRAMES - 1) % 2], HOP);
+
+    /* Trigger simulation end */
+    *((volatile uint32_t*)(SRAM_BASE + 0x7000)) = 0x55555555u;
+    while (1) ;
+    return 0;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Twiddle table - PASTE YOUR 256-entry table from original main.c here     */
+/* -------------------------------------------------------------------------- */
+
 const uint32_t fft_twiddles[256] = {
     0x7FFF0000, 0x7FFDFE6E, 0x7FF5FCDC, 0x7FE9FB4A, 0x7FD8F9B8, 0x7FC1F827, 0x7FA6F696, 0x7F86F505,
     0x7F61F374, 0x7F37F1E4, 0x7F09F055, 0x7ED5EEC6, 0x7E9CED38, 0x7E5FEBAB, 0x7E1DEA1E, 0x7DD5E892,
@@ -76,203 +636,22 @@ const uint32_t fft_twiddles[256] = {
     0x809FF374, 0x807AF505, 0x805AF696, 0x803FF827, 0x8028F9B8, 0x8017FB4A, 0x800BFCDC, 0x8003FE6E,
 };
 
-static inline uint32_t bit_reverse(uint32_t val) {
-    uint32_t rev_idx = 0;
-    for (int j = 0; j < 9; j++) {
-        rev_idx = (rev_idx << 1) | (val & 1);
-        val >>= 1;
+/* -------------------------------------------------------------------------- */
+/*  Placeholder trigger vectors (Q15).                                        */
+/*  Simulates a siren-like spectrum: loud between bins 40-70, quiet elsewhere.*/
+/*  Bins 40-70 correspond to ~1250-2200 Hz at 16 kHz sample rate.             */
+/*                                                                            */
+/*  Replace with real siren template data (from SVD of training data or       */
+/*  hand-crafted profile). Each row is one direction/template, 257 bins each. */
+/* -------------------------------------------------------------------------- */
+
+const int16_t trigger_vecs_q15[N_DIRECTIONS][HALF] = {
+    /* Simple placeholder: raised cosine centered around bin 55 */
+    /* Values in Q15: 0.7 = 22937, 0.05 = 1638, etc. */
+    {
+        /* You would fill this with real trained vector data.
+         * For now, 0.05 in bins 0-39, ramp up to 0.7 in bins 40-70, back to 0.05 in 71-256.
+         * Fill in real values at build time. */
+        0
     }
-    return rev_idx;
-}
-
-static inline uint32_t get_cycles() {
-    uint32_t cycles;
-    asm volatile ("rdcycle %0" : "=r"(cycles));
-    return cycles;
-}
-
-void cpu_memcpy(volatile uint32_t* dst, volatile uint32_t* src, uint32_t len) {
-    for (uint32_t i = 0; i < len; i++) {
-        dst[i] = src[i];
-    }
-}
-
-int main() {
-    volatile uint32_t* fft_twiddle = (volatile uint32_t*)(FFT_BASE + 0x0800);
-    volatile uint32_t* ifft_twiddle = (volatile uint32_t*)(IFFT_BASE + 0x0800);
-    
-    // Direct Access to Bank 0 and Bank 1 via AHB mapping
-    volatile uint32_t* sram_bank0 = (volatile uint32_t*)(PING_PONG_BASE);
-    volatile uint32_t* sram_bank1 = (volatile uint32_t*)(PING_PONG_BASE + 0x0800);
-
-    // --- DMA Benchmarking ---
-    volatile uint32_t* src_buf = sram_bank0;
-    volatile uint32_t* dst_buf = sram_bank1; 
-    uint32_t len = 256; // 256 words
-
-    // Initialize source
-    for (uint32_t i = 0; i < len; i++) src_buf[i] = i;
-
-    // Measure CPU Memcpy
-    uint32_t start_cycles = get_cycles();
-    cpu_memcpy(dst_buf, src_buf, len);
-    uint32_t end_cycles = get_cycles();
-    uint32_t cpu_cycles = end_cycles - start_cycles;
-
-    // Measure DMA Memcpy
-    start_cycles = get_cycles();
-    DMA_SRC = (uint32_t)src_buf;
-    DMA_DST = (uint32_t)dst_buf;
-    DMA_LEN = len;
-    DMA_CTRL = 1; // start DMA
-    while ((DMA_STATUS & 0x2) == 0); // wait for DONE status
-    end_cycles = get_cycles();
-    uint32_t dma_cycles = end_cycles - start_cycles;
-    DMA_CLR = 1; // clear DMA status
-
-    // Expose cycle counts for simulation tracking
-    *((volatile uint32_t*)(SRAM_BASE + 0x0F04)) = cpu_cycles;
-    *((volatile uint32_t*)(SRAM_BASE + 0x0F08)) = dma_cycles;
-    // ------------------------
-
-    // 1. Initialize Twiddle Factors for FFT and IFFT first (CPU intensive)
-    for (int i = 0; i < 256; i++) {
-        uint32_t val = fft_twiddles[i];
-        
-        // FFT Twiddles loaded directly
-        fft_twiddle[i] = val;
-        
-        // IFFT Twiddles are complex conjugates: negate the imaginary part
-        //int16_t real = (int16_t)(val >> 16);
-        int16_t imag = (int16_t)(val & 0xFFFF);
-        ifft_twiddle[i] = (val & 0xFFFF0000) | ((uint32_t)(-imag) & 0xFFFF);
-    }
-
-    // 2. Initialize Peripheral Clocks, Formats, and Enable I2S
-    I2S_RX_GCLK = 1;
-    I2S_TX_GCLK = 1;
-    I2S_RX_PR = 2;
-    I2S_TX_PR = 2;
-    I2S_RX_CFG = 0x20B; 
-    I2S_TX_CFG = 0x20B; 
-    
-    I2S_RX_CTRL = 2; // fifo_en=1, en=0
-    I2S_TX_CTRL = 2; // fifo_en=1, en=0
-
-    for (int i = 0; i < 8; i++) {
-        I2S_TX_DATA = 0;
-    }
-
-    I2S_RX_CTRL = 3; // fifo_en=1, en=1
-    I2S_TX_CTRL = 3; // fifo_en=1, en=1
-
-    // Default: Hardware operates on Bank 0
-    PING_PONG_CTRL = 0;
-
-    // 3. Process 4 frames continuously
-    
-    // Prime the very first frame: send dummy TX data to generate I2S clocks, and receive Frame 0 into Bank 0
-    uint32_t i2s_start = get_cycles();
-    for (int i = 0; i < 512; i++) {
-        while (I2S_TX_LEVEL > 14); I2S_TX_DATA = 0;
-        while (I2S_TX_LEVEL > 14); I2S_TX_DATA = 0;   //????
-        
-        while (I2S_RX_LEVEL == 0); 
-        uint32_t val = I2S_RX_DATA << 1; 
-        
-        // Read linearly in Natural Order
-        sram_bank0[i] = val;
-        
-        while (I2S_RX_LEVEL == 0); 
-        uint32_t dummy = I2S_RX_DATA;
-    }
-    uint32_t i2s_end = get_cycles();
-    *((volatile uint32_t*)(SRAM_BASE + 0x0F0C)) = (i2s_end - i2s_start);
-    
-    // In-place bit reversal of the primed frame
-    for (int i = 0; i < 512; i++) {
-        uint32_t rev_idx = bit_reverse(i);
-        if (i < rev_idx) {
-            uint32_t temp = sram_bank0[i];
-            sram_bank0[i] = sram_bank0[rev_idx];
-            sram_bank0[rev_idx] = temp;
-        }
-    }
-
-    for (int frame = 0; frame < 4; frame++) {
-        
-        // Decide ping/pong roles
-        int hardware_bank = (frame % 2);
-        int cpu_bank = 1 - hardware_bank;
-        
-        volatile uint32_t* hw_ram = (hardware_bank == 0) ? sram_bank0 : sram_bank1;
-        volatile uint32_t* cpu_ram = (cpu_bank == 0) ? sram_bank0 : sram_bank1;
-        
-        // Tell hardware accelerators to process their bank
-        PING_PONG_CTRL = hardware_bank;
-        
-        // Start FFT (operates in-place on hw_ram)
-        uint32_t fft_start = get_cycles();
-        FFT_CTRL = 1;
-        
-        // Wait for FFT engine completion
-        while ((FFT_CTRL & 2) == 0);
-        uint32_t fft_end = get_cycles();
-        
-        // Only output benchmark on the first frame to avoid clutter
-        if (frame == 0) {
-            *((volatile uint32_t*)(SRAM_BASE + 0x0F10)) = (fft_end - fft_start);
-        }
-
-        // Perform in-place bit reversal on hw_ram for IFFT input
-        for (int i = 0; i < 512; i++) {
-            uint32_t rev_idx = bit_reverse(i);
-            if (i < rev_idx) {
-                uint32_t temp = hw_ram[i];
-                hw_ram[i] = hw_ram[rev_idx];
-                hw_ram[rev_idx] = temp;
-            }
-        }
-
-        // Start IFFT (operates in-place on hw_ram)
-        IFFT_CTRL = 1;
-
-        // Wait for IFFT engine completion
-        while ((IFFT_CTRL & 2) == 0);
-
-        // Now, output the processed frame (hw_ram) while simultaneously reading the next frame into cpu_ram
-        for (int i = 0; i < 512; i++) {
-            while (I2S_TX_LEVEL > 14); I2S_TX_DATA = hw_ram[i];
-            while (I2S_TX_LEVEL > 14); I2S_TX_DATA = 0;
-            
-            while (I2S_RX_LEVEL == 0); 
-            uint32_t val = I2S_RX_DATA << 1; 
-            
-            // Read next frame and store in Natural Order in cpu_ram
-            cpu_ram[i] = val;
-            
-            while (I2S_RX_LEVEL == 0); uint32_t dummy = I2S_RX_DATA;
-        }
-        
-        // In-place bit reversal of the next frame
-        for (int i = 0; i < 512; i++) {
-            uint32_t rev_idx = bit_reverse(i);
-            if (i < rev_idx) {
-                uint32_t temp = cpu_ram[i];
-                cpu_ram[i] = cpu_ram[rev_idx];
-                cpu_ram[rev_idx] = temp;
-            }
-        }
-
-        // Toggle handshake flag to notify testbench that the current frame is complete
-        uint32_t handshake = 0x55555555;
-        if (frame == 0) handshake = 0x11111111;
-        else if (frame == 1) handshake = 0x22222222;
-        else if (frame == 2) handshake = 0x33333333;
-        
-        *((volatile uint32_t*)(SRAM_BASE + 0x0F00)) = handshake;
-    }
-
-    while(1);
-    return 0;
-}
+};

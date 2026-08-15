@@ -5,7 +5,7 @@ OBJCOPY = $(PREFIX)objcopy
 OBJDUMP = $(PREFIX)objdump
 
 # PicoRV32 specific flags: 32-bit integer instructions only (RV32I)
-CFLAGS = -mabi=ilp32 -march=rv32i -Os -ffreestanding -nostdlib
+CFLAGS = -mabi=ilp32 -march=rv32im -Os -ffreestanding -nostdlib
 
 # Default target (Removed commas from target names)
 all: bootrom.hex firmware_flash.hex firmware.asm
@@ -13,7 +13,7 @@ all: bootrom.hex firmware_flash.hex firmware.asm
 # Step 1: Compile and link ALL source files together in one shot.
 # This allows the linker script to properly route code sections using VMA/LMA.
 firmware.elf: start.o bootloader.o main.o sections.ld
-	$(CC) $(CFLAGS) -T sections.ld -o firmware.elf start.o bootloader.o main.o
+	$(CC) $(CFLAGS) -T sections.ld -o firmware.elf start.o bootloader.o main.o $$( $(CC) $(CFLAGS) -print-libgcc-file-name )
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@

@@ -9,8 +9,8 @@ MEMORY
     /* 4KB Boot ROM. Houses only the bootloader code */
     ROM (rx)   : ORIGIN = 0x00000000, LENGTH = 4K
     
-    /* 4KB Internal SRAM (ITCM). Main application executes here */
-    RAM (rwx)  : ORIGIN = 0x30000000, LENGTH = 4K
+    /* 32KB Internal SRAM (ITCM). Main application executes here */
+    RAM (rwx)  : ORIGIN = 0x30000000, LENGTH = 32K
 
     /* External SPI Flash memory footprint mapped image */
     FLASH (rx) : ORIGIN = 0x80000000, LENGTH = 64K

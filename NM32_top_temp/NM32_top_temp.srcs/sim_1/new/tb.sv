@@ -447,6 +447,7 @@
         end
         */
  
+        /*
         always @(posedge clk) begin
             if (dut.cpu.trap) begin
                 $display("Time=%0t: [CPU] TRAP DETECTED! Illegal instruction or crash!", $time);
@@ -489,7 +490,8 @@
                     //$display("Time=%0t: [SRAM DEBUG] mem[0x3B] = 0x%08h", $time, dut.sram0.SRAM_0.mem[8'h3B]);
                 end
             end
-        end  // ---------------------------------------------------------
+        end
+        */  // ---------------------------------------------------------
         // 7. Auto-Verification and Frame Dumping Logic
         // ---------------------------------------------------------
         integer outfile_fft;

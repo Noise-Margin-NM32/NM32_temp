@@ -308,7 +308,7 @@ always @(posedge PCLK or negedge PRESETN) begin
                 8'h00: src_addr_reg <= PWDATA;
                 8'h04: dst_addr_reg <= PWDATA;
                 8'h08: len_reg      <= PWDATA;
-                8'h0C: ctrl_reg     <= PWDATA[2:0];
+                8'h0C: ctrl_reg     <= PWDATA;
                 8'h14: begin ctrl_reg[0] <= 0; end
             endcase
         end
@@ -416,14 +416,14 @@ always @(posedge HCLK or negedge HRESETN) begin
             READ_DATA: begin
                 if (HREADY) begin
                     data_buf <= HRDATA;            // latch read data
-                    src_ptr  <= src_ptr + JUMP;    // advance source
+                    if (ctrl_reg[1]) src_ptr  <= src_ptr + JUMP;    // advance source
                 end
             end
  
             WRITE_DATA: begin
                 check <= 1'b1;
                 if (HREADY) begin
-                    dst_ptr <= dst_ptr + JUMP;     // advance dest
+                    if (ctrl_reg[2]) dst_ptr <= dst_ptr + JUMP;     // advance dest
                     len_cnt <= len_cnt_next;
                 end
             end

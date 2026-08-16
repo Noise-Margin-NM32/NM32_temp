@@ -47,7 +47,7 @@ module nm32_top(
 /////////////////////////////////           Wires and Parameters           ////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-localparam NUM_ARB_MSTS = 2; // Number of AHB masters in the system
+localparam NUM_ARB_MSTS = 4; // Number of AHB masters in the system
 localparam DEF_ARB_MST  = 0; // Default AHB master to be granted bus access when no other masters are requesting
 localparam NUM_SLVS = 7;
 
@@ -69,27 +69,38 @@ localparam i2s_DW = 32;
 
 // localparam SPI_BUF_DEPTH = 10;
 
-localparam NUM_APB_SLAVES = 5; // GPIO, I2S, I2S_TX, SPI, DMA
-localparam [NUM_APB_SLAVES-1:0][31:0] SLAVE_ADDR_START = {32'h2004_0000, 32'h2003_0000, 32'h2002_0000, 32'h2001_0000, 32'h2000_0000};
-localparam [NUM_APB_SLAVES-1:0][31:0] SLAVE_ADDR_END   = {32'h2004_FFFF, 32'h2003_FFFF, 32'h2002_FFFF, 32'h2001_FFFF, 32'h2000_FFFF};
+localparam NUM_APB_SLAVES = 6; // GPIO, I2S, I2S_TX, SPI, DMA_RX, DMA_TX
+localparam [NUM_APB_SLAVES-1:0][31:0] SLAVE_ADDR_START = {32'h2005_0000, 32'h2004_0000, 32'h2003_0000, 32'h2002_0000, 32'h2001_0000, 32'h2000_0000};
+localparam [NUM_APB_SLAVES-1:0][31:0] SLAVE_ADDR_END   = {32'h2005_FFFF, 32'h2004_FFFF, 32'h2003_FFFF, 32'h2002_FFFF, 32'h2001_FFFF, 32'h2000_FFFF};
 
 // wire remap;
 
 // wire pclk; // For APB peripherals
 reg pclk_reg;
 
-//cpu - AHB bus wires
-wire [31:0] cpu_haddr;
-wire [1:0]  cpu_htrans;
-wire [2:0]  cpu_hsize;
-wire        cpu_hwrite;
-wire [31:0] cpu_hwdata;
-wire        cpu_hready;
-wire [31:0] cpu_hrdata;
-wire [1:0]  cpu_hresp;
+// Ibex Instruction Memory - AHB bus wires
+wire [31:0] ibex_imem_haddr;
+wire [1:0]  ibex_imem_htrans;
+wire [2:0]  ibex_imem_hsize;
+wire        ibex_imem_hwrite;
+wire [31:0] ibex_imem_hwdata;
+wire        ibex_imem_hready;
+wire [31:0] ibex_imem_hrdata;
+wire [1:0]  ibex_imem_hresp;
+wire        ibex_imem_hgrant;
+wire        ibex_imem_hbusreq;
 
-wire cpu_hgrant;
-wire cpu_hbusreq;
+// Ibex Data Memory - AHB bus wires
+wire [31:0] ibex_dmem_haddr;
+wire [1:0]  ibex_dmem_htrans;
+wire [2:0]  ibex_dmem_hsize;
+wire        ibex_dmem_hwrite;
+wire [31:0] ibex_dmem_hwdata;
+wire        ibex_dmem_hready;
+wire [31:0] ibex_dmem_hrdata;
+wire [1:0]  ibex_dmem_hresp;
+wire        ibex_dmem_hgrant;
+wire        ibex_dmem_hbusreq;
 // wire cpu_hlock; //changed by agy
 // wire [2:0] cpu_hburst; //changed by agy
 // wire [3:0] cpu_hprot; //changed by agy
@@ -101,14 +112,7 @@ wire cpu_hbusreq;
 // assign cpu_hprot; // Default protection
 
 
-// Pico native signals
-wire        cpu_mem_valid;
-wire        cpu_mem_ready; 
-wire [31:0] cpu_mem_addr;
-wire [31:0] cpu_mem_wdata;
-wire [3:0]  cpu_mem_wstrb;
-wire [31:0] cpu_mem_rdata;
-wire        cpu_mem_instr;
+// Ibex native signals handled directly inside wrappers
 
 
 // Arbiter wires
@@ -231,16 +235,16 @@ wire [1:0]  boot_rom_HRESP;
 
 
 
-// DMA Wires
-wire        dma_irq;
-wire        dma_check;
-wire [31:0] dma_PADDR;
-wire [31:0] dma_PWDATA;
-wire        dma_PWRITE;
-wire        dma_PSEL;
-wire        dma_PENABLE;
-wire [31:0] dma_PRDATA;
-wire        dma_PREADY;
+// DMA RX Wires
+wire        dma_rx_irq;
+wire        dma_rx_check;
+wire [31:0] dma_rx_PADDR;
+wire [31:0] dma_rx_PWDATA;
+wire        dma_rx_PWRITE;
+wire        dma_rx_PSEL;
+wire        dma_rx_PENABLE;
+wire [31:0] dma_rx_PRDATA;
+wire        dma_rx_PREADY;
 
 ///////////////////////////////////////////////////////////////////////////TIE OFFS////////////////////////////////////////////////////////////////////////
 
@@ -255,15 +259,27 @@ end
 assign pclk = pclk_reg;
 
 
-assign mst_hbusreq[0] = cpu_hbusreq;        //CPU sending to the arbiter
-// assign mst_hlock[0] = cpu_hlock; //changed by agy
-assign mst_htrans[0] = cpu_htrans; //changed by agy
-assign mst_haddr[0] = cpu_haddr;
-assign mst_hwrite[0] = cpu_hwrite;
-assign mst_hsize[0] = cpu_hsize;
-// assign mst_hburst[0] = cpu_hburst; //changed by agy
-// assign mst_hprot[0] = cpu_hprot; //changed by agy
-assign mst_hwdata[0] = cpu_hwdata;
+assign mst_hbusreq[0] = ibex_imem_hbusreq;
+assign mst_htrans[0] = ibex_imem_htrans;
+assign mst_haddr[0] = ibex_imem_haddr;
+assign mst_hwrite[0] = ibex_imem_hwrite;
+assign mst_hsize[0] = ibex_imem_hsize;
+assign mst_hwdata[0] = ibex_imem_hwdata;
+assign ibex_imem_hgrant = mst_hgrant[0];
+assign ibex_imem_hready = mst_hready_out;
+assign ibex_imem_hrdata = mst_hrdata_out;
+assign ibex_imem_hresp = mst_hresp_out;
+
+assign mst_hbusreq[1] = ibex_dmem_hbusreq;
+assign mst_htrans[1] = ibex_dmem_htrans;
+assign mst_haddr[1] = ibex_dmem_haddr;
+assign mst_hwrite[1] = ibex_dmem_hwrite;
+assign mst_hsize[1] = ibex_dmem_hsize;
+assign mst_hwdata[1] = ibex_dmem_hwdata;
+assign ibex_dmem_hgrant = mst_hgrant[1];
+assign ibex_dmem_hready = mst_hready_out;
+assign ibex_dmem_hrdata = mst_hrdata_out;
+assign ibex_dmem_hresp = mst_hresp_out;
 
 generate
     genvar i;
@@ -471,7 +487,7 @@ assign slv_hready_in_v[6] = clic_HREADYOUT;
 
 generate
    genvar j;
-    for(j = 7; j<15; j = j+1) begin
+    for(j = 7; j<NUM_SLVS; j = j+1) begin
 //        assign slv_hrdata_v[j] = 0;
 //        assign slv_hresp_v[j] = 0;
          assign slv_hready_in_v[j] = 0;
@@ -489,13 +505,31 @@ assign spi_PENABLE = bridge_p_enable; // From bridge to APB slave
 assign bridge_pready[2] = spi_PREADY; // From APB slave to bridge
 assign bridge_p_rdata[2] = spi_PRDATA; // From APB slave to
 
-assign dma_PADDR = bridge_p_addr;
-assign dma_PWDATA = bridge_p_wdata;
-assign dma_PWRITE = bridge_p_write;
-assign dma_PSEL = bridge_p_selx[3];
-assign dma_PENABLE = bridge_p_enable;
-assign bridge_pready[3] = dma_PREADY;
-assign bridge_p_rdata[3] = dma_PRDATA;
+assign dma_rx_PADDR = bridge_p_addr;
+assign dma_rx_PWDATA = bridge_p_wdata;
+assign dma_rx_PWRITE = bridge_p_write;
+assign dma_rx_PSEL = bridge_p_selx[3];
+assign dma_rx_PENABLE = bridge_p_enable;
+assign bridge_pready[3] = dma_rx_PREADY;
+assign bridge_p_rdata[3] = dma_rx_PRDATA;
+
+wire        dma_tx_irq;
+wire        dma_tx_check;
+wire [31:0] dma_tx_PADDR;
+wire [31:0] dma_tx_PWDATA;
+wire        dma_tx_PWRITE;
+wire        dma_tx_PSEL;
+wire        dma_tx_PENABLE;
+wire [31:0] dma_tx_PRDATA;
+wire        dma_tx_PREADY;
+
+assign dma_tx_PADDR = bridge_p_addr;
+assign dma_tx_PWDATA = bridge_p_wdata;
+assign dma_tx_PWRITE = bridge_p_write;
+assign dma_tx_PSEL = bridge_p_selx[5];
+assign dma_tx_PENABLE = bridge_p_enable;
+assign bridge_pready[5] = dma_tx_PREADY;
+assign bridge_p_rdata[5] = dma_tx_PRDATA;
 
 // GPIO Wires and Connections
 wire [31:0] gpio_PADDR;
@@ -515,70 +549,186 @@ assign gpio_PENABLE = bridge_p_enable;
 assign bridge_pready[4] = gpio_PREADY;
 assign bridge_p_rdata[4] = gpio_PRDATA;
 
-dma_controller dma_inst (
+dma_controller dma_rx_inst (
     .PCLK(pclk),
     .HCLK(clk),
     .PRESETN(rstn),
     .HRESETN(rstn),
     
     // APB Slave Interface
-    .PSEL(dma_PSEL),
-    .PENABLE(dma_PENABLE),
-    .PWRITE(dma_PWRITE),
-    .PADDR(dma_PADDR),
-    .PWDATA(dma_PWDATA),
-    .PRDATA(dma_PRDATA),
-    .PREADY(dma_PREADY),
+    .PSEL(dma_rx_PSEL),
+    .PENABLE(dma_rx_PENABLE),
+    .PWRITE(dma_rx_PWRITE),
+    .PADDR(dma_rx_PADDR),
+    .PWDATA(dma_rx_PWDATA),
+    .PRDATA(dma_rx_PRDATA),
+    .PREADY(dma_rx_PREADY),
     
     // AHB Master Interface
-    .HGRANT(mst_hgrant[1]),
-    .HBUSREQ(mst_hbusreq[1]),
-    .HADDR(mst_haddr[1]),
-    .HTRANS(mst_htrans[1]),
-    .HWRITE(mst_hwrite[1]),
+    .HGRANT(mst_hgrant[2]),
+    .HBUSREQ(mst_hbusreq[2]),
+    .HADDR(mst_haddr[2]),
+    .HTRANS(mst_htrans[2]),
+    .HWRITE(mst_hwrite[2]),
     .HREADY(mst_hready_out),
-    .irq(dma_irq),
+    .irq(dma_rx_irq),
     .HRDATA(mst_hrdata_out),
-    .HWDATA(mst_hwdata[1]),
-    .check(dma_check)
+    .HWDATA(mst_hwdata[2]),
+    .check(dma_rx_check)
 );
-assign mst_hsize[1] = 3'b010; // 32-bit transfers
+assign mst_hsize[2] = 3'b010; // 32-bit transfers
+
+dma_controller dma_tx_inst (
+    .PCLK(pclk),
+    .HCLK(clk),
+    .PRESETN(rstn),
+    .HRESETN(rstn),
+    
+    // APB Slave Interface
+    .PSEL(dma_tx_PSEL),
+    .PENABLE(dma_tx_PENABLE),
+    .PWRITE(dma_tx_PWRITE),
+    .PADDR(dma_tx_PADDR),
+    .PWDATA(dma_tx_PWDATA),
+    .PRDATA(dma_tx_PRDATA),
+    .PREADY(dma_tx_PREADY),
+    
+    // AHB Master Interface
+    .HGRANT(mst_hgrant[3]),
+    .HBUSREQ(mst_hbusreq[3]),
+    .HADDR(mst_haddr[3]),
+    .HTRANS(mst_htrans[3]),
+    .HWRITE(mst_hwrite[3]),
+    .HREADY(mst_hready_out),
+    .irq(dma_tx_irq),
+    .HRDATA(mst_hrdata_out),
+    .HWDATA(mst_hwdata[3]),
+    .check(dma_tx_check)
+);
+assign mst_hsize[3] = 3'b010; // 32-bit transfers
 
 //////////////////////////////////////////////////////////////////////////////// INSTANTIATIONS ////////////////////////////////////////////////////////////////////////
-
-// Instantiate Pico
-picorv32 #(
-    .ENABLE_MUL(1),
-    .ENABLE_DIV(1),
-    .ENABLE_IRQ(1),
-    .ENABLE_IRQ_QREGS(1),
-    .ENABLE_IRQ_TIMER(1),
-    .ENABLE_TRACE(0),
-    .REGS_INIT_ZERO(1),
-    .MASKED_IRQ(32'h0000_0000),
-    .LATCHED_IRQ(32'hffff_ffff),
-    .PROGADDR_RESET(32'h0000_0000),
-    .PROGADDR_IRQ(32'h0000_0010)
-) cpu (
-    .clk(clk),
-    .resetn(rstn),
-    .trap(trap),
-    .mem_valid(cpu_mem_valid),
-    .mem_instr(cpu_mem_instr),
-    .mem_ready(cpu_mem_ready),
-    .mem_addr(cpu_mem_addr),
-    .mem_wdata(cpu_mem_wdata),
-    .mem_wstrb(cpu_mem_wstrb),
-    .mem_rdata(cpu_mem_rdata),
-    .irq(cpu_irq),
-    .eoi()
-);
-
 // CLIC Output processing
 wire        clic_irq_valid;
 wire [3:0]  clic_irq_id;
 wire [2:0]  clic_irq_level;
 wire [31:0] cpu_irq;
+
+// Instantiate Ibex
+wire        instr_req;
+wire        instr_gnt;
+wire        instr_rvalid;
+wire [31:0] instr_addr;
+wire [31:0] instr_rdata;
+wire        instr_err;
+
+wire        data_req;
+wire        data_gnt;
+wire        data_rvalid;
+wire        data_we;
+wire [3:0]  data_be;
+wire [31:0] data_addr;
+wire [31:0] data_wdata;
+wire [31:0] data_rdata;
+wire        data_err;
+
+ibex_core #(
+    .RV32M(ibex_pkg::RV32MFast),
+    .BranchPredictor(1),
+    .WritebackStage(1)
+) u_ibex_core (
+    .clk_i(clk),
+    .rst_ni(rstn),
+
+    .hart_id_i(32'h0),
+    .boot_addr_i(32'h0000_0000),
+
+    .instr_req_o(instr_req),
+    .instr_gnt_i(instr_gnt),
+    .instr_rvalid_i(instr_rvalid),
+    .instr_addr_o(instr_addr),
+    .instr_rdata_i(instr_rdata),
+    .instr_err_i(instr_err),
+
+    .data_req_o(data_req),
+    .data_gnt_i(data_gnt),
+    .data_rvalid_i(data_rvalid),
+    .data_we_o(data_we),
+    .data_be_o(data_be),
+    .data_addr_o(data_addr),
+    .data_wdata_o(data_wdata),
+    .data_rdata_i(data_rdata),
+    .data_err_i(data_err),
+
+    .irq_software_i(1'b0),
+    .irq_timer_i(1'b0),
+    .irq_external_i(clic_irq_valid),
+    .irq_fast_i(15'b0),
+    .irq_nm_i(1'b0),
+    .irq_pending_o(),
+    .crash_dump_o(),
+    .double_fault_seen_o(),
+    
+    .debug_req_i(1'b0),
+    .fetch_enable_i(ibex_pkg::IbexMuBiOn),
+    .mcounteren_writable_i(ibex_pkg::IbexMuBiOn),
+    .alert_minor_o(),
+    .alert_major_internal_o(),
+    .alert_major_bus_o(),
+    .core_busy_o()
+);
+
+// Instruction Memory Wrapper
+ibex_to_ahb imem_wrapper (
+    .clk_i(clk),
+    .rst_ni(rstn),
+    .req_i(instr_req),
+    .gnt_o(instr_gnt),
+    .addr_i(instr_addr),
+    .we_i(1'b0),
+    .be_i(4'b1111),
+    .wdata_i(32'b0),
+    .rvalid_o(instr_rvalid),
+    .rdata_o(instr_rdata),
+    .err_o(instr_err),
+    
+    .HADDR(ibex_imem_haddr),
+    .HTRANS(ibex_imem_htrans),
+    .HSIZE(ibex_imem_hsize),
+    .HWRITE(ibex_imem_hwrite),
+    .HWDATA(ibex_imem_hwdata),
+    .HRDATA(ibex_imem_hrdata),
+    .HREADY(ibex_imem_hready),
+    .HRESP(ibex_imem_hresp),
+    .HBUSREQ(ibex_imem_hbusreq),
+    .HGRANT(ibex_imem_hgrant)
+);
+
+// Data Memory Wrapper
+ibex_to_ahb dmem_wrapper (
+    .clk_i(clk),
+    .rst_ni(rstn),
+    .req_i(data_req),
+    .gnt_o(data_gnt),
+    .addr_i(data_addr),
+    .we_i(data_we),
+    .be_i(data_be),
+    .wdata_i(data_wdata),
+    .rvalid_o(data_rvalid),
+    .rdata_o(data_rdata),
+    .err_o(data_err),
+    
+    .HADDR(ibex_dmem_haddr),
+    .HTRANS(ibex_dmem_htrans),
+    .HSIZE(ibex_dmem_hsize),
+    .HWRITE(ibex_dmem_hwrite),
+    .HWDATA(ibex_dmem_hwdata),
+    .HRDATA(ibex_dmem_hrdata),
+    .HREADY(ibex_dmem_hready),
+    .HRESP(ibex_dmem_hresp),
+    .HBUSREQ(ibex_dmem_hbusreq),
+    .HGRANT(ibex_dmem_hgrant)
+);
 
 // Convert CLIC's vectored output into a standard 32-bit irq vector for picorv32
 assign cpu_irq = clic_irq_valid ? (32'b1 << clic_irq_id) : 32'b0;
@@ -589,9 +739,10 @@ assign clic_intr_src[0] = i2s_IRQ;
 assign clic_intr_src[1] = i2s_tx_IRQ;
 assign clic_intr_src[2] = fft_irq;
 assign clic_intr_src[3] = ifft_irq;
-assign clic_intr_src[4] = dma_irq;
-assign clic_intr_src[5] = gpio_IRQ;
-assign clic_intr_src[15:6] = 10'b0;
+assign clic_intr_src[4] = dma_rx_irq;
+assign clic_intr_src[5] = dma_tx_irq;
+assign clic_intr_src[6] = gpio_IRQ;
+assign clic_intr_src[15:7] = 9'b0;
 
 clic_ahb clic_inst (
     .hclk(clk),
@@ -613,25 +764,6 @@ clic_ahb clic_inst (
     .irq_id_o(clic_irq_id),
     .irq_level_o(clic_irq_level)
 );
-
-pico_to_ahb wrapper( .clk(clk), .resetn(rstn), 
-    .mem_valid(cpu_mem_valid), .mem_ready(cpu_mem_ready), .mem_addr(cpu_mem_addr),
-    .mem_wdata(cpu_mem_wdata), .mem_wstrb(cpu_mem_wstrb), .mem_rdata(cpu_mem_rdata),
-    .mem_instr(cpu_mem_instr),
-
-    .mst_haddr(cpu_haddr), 
-    .mst_htrans(cpu_htrans), 
-    .mst_hsize(cpu_hsize), 
-    .mst_hwrite(cpu_hwrite), 
-    .mst_hwdata(cpu_hwdata),
-    .mst_hready_out(cpu_hready), 
-    .mst_hrdata_out(cpu_hrdata), 
-    .mst_hresp_out(cpu_hresp), 
-    .mst_hbusreq(cpu_hbusreq),
-    .mst_hgrant(cpu_hgrant)
-//     .mst_hlock(cpu_hlock), .mst_hburst(cpu_hburst), .mst_hprot(cpu_hprot),  //changed by agy
-
-     );
 
 
 // Other masters (if any) would be assigned here

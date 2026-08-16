@@ -272,17 +272,53 @@ static void init_i2s(void) {
 /*  Everything is Q15 int16 here; no conversions needed.                      */
 /* -------------------------------------------------------------------------- */
 
-static void io_hop(const int16_t *tx_samples, int hop) {
+/* -------------------------------------------------------------------------- */
+/*  DMA Base and Registers                                                    */
+/* -------------------------------------------------------------------------- */
+
+#define DMA_RX_BASE     0x20030000
+#define DMA_TX_BASE     0x20050000
+
+#define DMA_RX_SRC_ADDR (*((volatile uint32_t*)(DMA_RX_BASE + 0x00)))
+#define DMA_RX_DST_ADDR (*((volatile uint32_t*)(DMA_RX_BASE + 0x04)))
+#define DMA_RX_LEN      (*((volatile uint32_t*)(DMA_RX_BASE + 0x08)))
+#define DMA_RX_CTRL     (*((volatile uint32_t*)(DMA_RX_BASE + 0x0C)))
+#define DMA_RX_STATUS   (*((volatile uint32_t*)(DMA_RX_BASE + 0x10)))
+
+#define DMA_TX_SRC_ADDR (*((volatile uint32_t*)(DMA_TX_BASE + 0x00)))
+#define DMA_TX_DST_ADDR (*((volatile uint32_t*)(DMA_TX_BASE + 0x04)))
+#define DMA_TX_LEN      (*((volatile uint32_t*)(DMA_TX_BASE + 0x08)))
+#define DMA_TX_CTRL     (*((volatile uint32_t*)(DMA_TX_BASE + 0x0C)))
+#define DMA_TX_STATUS   (*((volatile uint32_t*)(DMA_TX_BASE + 0x10)))
+
+static uint32_t dma_rx_buf[2][HOP * 2];
+static uint32_t dma_tx_buf[2][HOP * 2];
+
+static void pack_and_start_dma(const int16_t *tx_samples, int hop, int p) {
     for (int i = 0; i < hop; i++) {
-        int16_t s = tx_samples[i];   /* already clamped */
-        while (I2S_TX_LEVEL > 14) ;  I2S_TX_DATA = (uint32_t)(uint16_t)s;
-        while (I2S_TX_LEVEL > 14) ;  I2S_TX_DATA = 0;
+        dma_tx_buf[p][i * 2] = (uint32_t)(uint16_t)tx_samples[i];
+        dma_tx_buf[p][i * 2 + 1] = 0;
+    }
 
-        while (I2S_RX_LEVEL == 0) ;
-        int16_t new_sample = (int16_t)(I2S_RX_DATA << 1);
-        while (I2S_RX_LEVEL == 0) ;
-        (void)I2S_RX_DATA;
+    DMA_TX_SRC_ADDR = (uint32_t)dma_tx_buf[p];
+    DMA_TX_DST_ADDR = I2S_TX_BASE + 0x00;
+    DMA_TX_LEN = hop * 2;
+    DMA_TX_CTRL = 0x3;
 
+    DMA_RX_SRC_ADDR = I2S_RX_BASE + 0x00;
+    DMA_RX_DST_ADDR = (uint32_t)dma_rx_buf[p];
+    DMA_RX_LEN = hop * 2;
+    DMA_RX_CTRL = 0x5;
+}
+
+static void wait_and_unpack_dma(int hop, int p) {
+    while ((DMA_RX_STATUS & 2) == 0) ;
+    DMA_RX_STATUS = 1;
+    while ((DMA_TX_STATUS & 2) == 0) ;
+    DMA_TX_STATUS = 1;
+
+    for (int i = 0; i < hop; i++) {
+        int16_t new_sample = (int16_t)(dma_rx_buf[p][i * 2] << 1);
         input_buffer[input_write_ptr] = new_sample;
         input_write_ptr = (input_write_ptr + 1) % N_FFT;
     }
@@ -541,7 +577,10 @@ int main(void) {
     for (int i = 0; i < N_FFT; i++) silence[i] = 0;
 
     /* Prime input buffer with a full frame of history before the loop starts */
-    io_hop(silence, N_FFT);
+    pack_and_start_dma(silence, HOP, 0);
+    wait_and_unpack_dma(HOP, 0);
+    pack_and_start_dma(silence, HOP, 1);
+    wait_and_unpack_dma(HOP, 1);
 
     /* Double-buffered per bank parity, since two frames are genuinely
      * in flight at once now: one being computed, one being streamed. */
@@ -567,7 +606,7 @@ int main(void) {
          * simultaneously capture the samples the NEXT iteration's
          * prepare_bank will need. This is genuinely concurrent with the
          * FFT computation happening in hardware right now. */
-        io_hop(frame == 0 ? silence : tx_scratch[prev_p], HOP);
+        pack_and_start_dma(frame == 0 ? silence : tx_scratch[prev_p], HOP, p);
 
         /* Now collect the FFT result - if hardware finished during io_hop,
          * this returns immediately with zero extra wait. */
@@ -584,12 +623,16 @@ int main(void) {
         read_bank_ifft(bank, frame_time[p]);
         overlap_add_and_drain(frame_time[p], tx_scratch[p]);
 
+        /* Wait for DMA to finish its concurrent stream and unpack it */
+        wait_and_unpack_dma(HOP, p);
+
         *((volatile uint32_t*)(SRAM_BASE + 0x7000)) = 0x22220000u | (uint32_t)frame;
     }
 
     /* Epilogue - stream out the final frame's output, since it never got
      * an overlapped io_hop slot inside the loop. */
-    io_hop(tx_scratch[(NUM_FRAMES - 1) % 2], HOP);
+    pack_and_start_dma(tx_scratch[(NUM_FRAMES - 1) % 2], HOP, 0);
+    wait_and_unpack_dma(HOP, 0);
 
     /* Trigger simulation end */
     *((volatile uint32_t*)(SRAM_BASE + 0x7000)) = 0x55555555u;

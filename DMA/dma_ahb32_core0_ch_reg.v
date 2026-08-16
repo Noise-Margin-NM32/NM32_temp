@@ -133,7 +133,7 @@ module dma_ahb32_core0_ch_reg(clk,clken,pclken,reset,psel,penable,paddr,pwrite,p
    output [1:0]          end_swap;
       
    
-`include "dma_ahb32_ch_reg_params.v"
+`include "dma_ahb32_ch_reg_params.vh"
 
    
   parameter     INT_NUM = 8; 

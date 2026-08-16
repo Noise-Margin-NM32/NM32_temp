@@ -69,7 +69,7 @@ module dma_ahb32_reg(clk,reset,pclken,psel,penable,paddr,pwrite,pwdata,prdata,ps
    input [31:1]               periph_rx_clr;
    input [31:1]               periph_tx_clr;
 
-`include "dma_ahb32_reg_params.v"
+`include "dma_ahb32_reg_params.vh"
 
    
    wire [31:0]                   user_def_stat;

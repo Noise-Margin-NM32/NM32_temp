@@ -56,7 +56,7 @@ module AHB_to_APB_Bridge #(
 
 
     logic valid;
-    assign valid = (h_sel_apb && (h_trans == 2'b10 || h_trans == 2'b11));
+    assign valid = (h_sel_apb && (h_trans == 2'b10 || h_trans == 2'b11) && h_ready_in);
 
     logic pclk_d;
     always_ff @(posedge h_clk) pclk_d <= pclk;
@@ -82,7 +82,7 @@ module AHB_to_APB_Bridge #(
             write_reg <= 0;
         end else begin
             state <= next_state;
-            if (state == IDLE && valid) begin
+            if ((state == IDLE || state == ACCESS) && valid) begin
                 addr_reg <= h_addr;
                 write_reg <= h_write;
             end
@@ -103,18 +103,14 @@ module AHB_to_APB_Bridge #(
                 if (valid) next_state = LATCH;
             end
             LATCH: begin
-                // Wait for pclk_fall to align APB signals
-                if (pclk_fall) next_state = SETUP;
+                next_state = SETUP;
             end
             SETUP: begin
-                if (pclk_fall) next_state = ACCESS;
+                next_state = ACCESS;
             end
             ACCESS: begin
-                if (pclk_fall) begin
-                    // If there's a back-to-back transfer pending, we could go to LATCH, 
-                    // but for safety let's return to IDLE and process it.
-                    next_state = IDLE;
-                end
+                if (valid) next_state = LATCH;
+                else       next_state = IDLE;
             end
         endcase
     end
@@ -142,10 +138,7 @@ module AHB_to_APB_Bridge #(
                 p_wdata = write_reg ? h_wdata : 32'b0;
             end
             ACCESS: begin
-                // Assert h_ready_out on the LAST h_clk cycle of the ACCESS phase
-                // so the AHB master completes the transfer.
-                // It completes when pclk_fall is true.
-                h_ready_out = pclk_fall;
+                h_ready_out = 1'b1;
                 p_enable = 1'b1;
                 p_wdata = write_reg ? h_wdata : 32'b0;
             end
@@ -161,4 +154,8 @@ module AHB_to_APB_Bridge #(
         end
     end
 
+    always @(state, valid) begin
+        $display("Time=%0t: [APB_BRIDGE] state=%0d next_state=%0d valid=%b h_ready_in=%b h_ready_out=%b h_addr=%h addr_reg=%h h_wdata=%h p_addr=%h p_wdata=%h p_enable=%b p_selx=%b p_write=%b",
+            $time, state, next_state, valid, h_ready_in, h_ready_out, h_addr, addr_reg, h_wdata, p_addr, p_wdata, p_enable, p_selx, p_write);
+    end
 endmodule

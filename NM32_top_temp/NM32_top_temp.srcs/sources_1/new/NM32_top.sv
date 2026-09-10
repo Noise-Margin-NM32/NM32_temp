@@ -516,7 +516,7 @@ assign bridge_pready[4] = gpio_PREADY;
 assign bridge_p_rdata[4] = gpio_PRDATA;
 
 dma_controller dma_inst (
-    .PCLK(pclk),
+    .PCLK(clk),
     .HCLK(clk),
     .PRESETN(rstn),
     .HRESETN(rstn),
@@ -557,7 +557,7 @@ picorv32 #(
     .REGS_INIT_ZERO(1),
     .MASKED_IRQ(32'h0000_0000),
     .LATCHED_IRQ(32'hffff_ffff),
-    .PROGADDR_RESET(32'h0000_0000),
+    .PROGADDR_RESET(32'h0000_0080),
     .PROGADDR_IRQ(32'h0000_0010)
 ) cpu (
     .clk(clk),
@@ -730,7 +730,7 @@ SRAM_1024x32_ahb_wrapper sram0 (
 );
 
 EF_I2S_APB #(.AW(i2s_AW), .DW(i2s_DW)) i2s_apb (
-    .PCLK(pclk),
+    .PCLK(clk),
     .PRESETn(rstn),
     .PWRITE(i2s_PWRITE),
     .PWDATA(i2s_PWDATA),
@@ -747,7 +747,7 @@ EF_I2S_APB #(.AW(i2s_AW), .DW(i2s_DW)) i2s_apb (
 
 EF_I2S_TX_APB #(.AW(i2s_AW), .DW(i2s_DW)) i2s_tx_apb (
     .sc_testmode(1'b0),
-    .PCLK(pclk),
+    .PCLK(clk),
     .PRESETn(rstn),
     .PWRITE(i2s_tx_PWRITE),
     .PWDATA(i2s_tx_PWDATA),
@@ -944,7 +944,7 @@ EF_GPIO8_APB gpio_apb_inst (
         .BUFFER_DEPTH(SPI_BUF_DEPTH),
         .APB_ADDR_WIDTH(12)
     ) spi_inst (
-    .HCLK   (pclk),
+    .HCLK   (clk),
     .HRESETn(rstn),
     .PADDR  (spi_PADDR[11:0]),
     .PWDATA (spi_PWDATA),

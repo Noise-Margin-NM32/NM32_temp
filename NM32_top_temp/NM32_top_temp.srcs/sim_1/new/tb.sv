@@ -289,6 +289,13 @@
 
         initial begin
             $readmemh("./../../../../../firmware/audio_in.txt", audio_in_mem);
+            
+            // FAST BOOT BYPASS: Load firmware directly into SRAM
+            $readmemh("./../../../../../firmware/firmware_flash.hex", dut.sram0.mem);
+            
+            // Overwrite the 'jal hardware_spi_bootloader' instruction at Boot ROM address 0x08
+            // with a NOP (0x00000013) to skip the slow SPI read loop but keep SP and BSS setup.
+            dut.boot_rom.memory[2] = 32'h00000013;
         end
 
         // Robust Synchronous I2S Serializer
@@ -367,11 +374,11 @@
             rstn = 1;
 
             // --- SAFETY TIMEOUT ---
-            // Because your C code ends in an infinite while(1) loop, 
+            // Because your C code ends in an infinite while(1) loop,
             // the simulation will run forever if you click "Run All".
             // This command forces Vivado to stop after a timeout.
             // --- SAFETY TIMEOUT ---
-            #800000000; // 800.0ms (80,000,000 cycles at 100MHz)
+            #800000000; // 800.0ms (80,000,000 cycles at 100MHz) -- covers 4 audio frames (audio_in.txt = 2048 samples / 256-pt frame)
             
             $display("--------------------------------------------------");
             $display(" Simulation reached timeout and finished safely.");
@@ -558,5 +565,6 @@
                 end
             end
         end
+
 
     endmodule

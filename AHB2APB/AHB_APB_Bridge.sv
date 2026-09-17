@@ -82,7 +82,7 @@ module AHB_to_APB_Bridge #(
             write_reg <= 0;
         end else begin
             state <= next_state;
-            if (state == IDLE && valid) begin
+            if (h_ready_out && valid) begin
                 addr_reg <= h_addr;
                 write_reg <= h_write;
             end
@@ -100,21 +100,17 @@ module AHB_to_APB_Bridge #(
         next_state = state;
         case (state)
             IDLE: begin
-                if (valid) next_state = LATCH;
+                if (valid) next_state = SETUP;
             end
             LATCH: begin
-                // Wait for pclk_fall to align APB signals
-                if (pclk_fall) next_state = SETUP;
+                next_state = SETUP;
             end
             SETUP: begin
-                if (pclk_fall) next_state = ACCESS;
+                next_state = ACCESS;
             end
             ACCESS: begin
-                if (pclk_fall) begin
-                    // If there's a back-to-back transfer pending, we could go to LATCH, 
-                    // but for safety let's return to IDLE and process it.
-                    next_state = IDLE;
-                end
+                if (valid) next_state = SETUP;
+                else       next_state = IDLE;
             end
         endcase
     end
@@ -126,8 +122,6 @@ module AHB_to_APB_Bridge #(
         p_write = write_reg;
         p_addr = addr_reg;
         p_wdata = (state == SETUP || state == ACCESS) ? (write_reg ? h_wdata : 32'b0) : 32'b0;
-        // Wait, standard AHB provides h_wdata during the data phase. 
-        // In SETUP and ACCESS, we are in the data phase, so h_wdata is valid.
         
         case (state)
             IDLE: begin
@@ -142,10 +136,7 @@ module AHB_to_APB_Bridge #(
                 p_wdata = write_reg ? h_wdata : 32'b0;
             end
             ACCESS: begin
-                // Assert h_ready_out on the LAST h_clk cycle of the ACCESS phase
-                // so the AHB master completes the transfer.
-                // It completes when pclk_fall is true.
-                h_ready_out = pclk_fall;
+                h_ready_out = 1'b1;
                 p_enable = 1'b1;
                 p_wdata = write_reg ? h_wdata : 32'b0;
             end

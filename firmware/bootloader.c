@@ -10,7 +10,7 @@ extern uint32_t _data_ram_start;
 extern uint32_t _data_ram_end;
 
 // APB SPI Controller Register Map Offsets derived from PADDR[5:2]
-#define SPI_BASE_ADDR        0x20020000
+#define SPI_BASE_ADDR        0x20030000
 #define SPI_REG_STATUS       (*(volatile uint32_t*)(SPI_BASE_ADDR + 0x00)) // CS selection & Trigger
 #define SPI_REG_CLKDIV       (*(volatile uint32_t*)(SPI_BASE_ADDR + 0x04)) // Clock divider
 #define SPI_REG_SPICMD       (*(volatile uint32_t*)(SPI_BASE_ADDR + 0x08)) // SPI Command Reg

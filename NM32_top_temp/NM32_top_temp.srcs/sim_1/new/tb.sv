@@ -387,6 +387,31 @@
             $finish;
         end
 
+        // ---------------------------------------------------------
+        // 5b. X-propagation watchdog
+        // ---------------------------------------------------------
+        // Stops the sim the instant the CPU fetch/data interface sees
+        // unknown (X) data, instead of running to the 800ms timeout
+        // while Ibex's internal assertions re-fire every cycle.
+        reg data_phase_is_write;
+        always @(posedge clk) begin
+            if (!rstn) data_phase_is_write <= 1'b0;
+            else if (dut.slv_hready_in) data_phase_is_write <= dut.arbiter.sel_hwrite;
+        end
+
+        always @(posedge clk) begin
+            if (rstn) begin
+                if (dut.instr_rvalid && $isunknown(dut.instr_rdata)) begin
+                    $display("Time=%0t: [WATCHDOG] X detected on instr_rdata while instr_rvalid=1 -- CPU fetch starved/corrupted at Addr=0x%h. PC=0x%h. Stopping sim.", $time, dut.instr_addr, dut.instr_addr);
+                    $finish;
+                end
+                if (dut.data_rvalid && !data_phase_is_write && $isunknown(dut.data_rdata)) begin
+                    $display("Time=%0t: [WATCHDOG] X detected on data_rdata while data_rvalid=1 -- CPU load starved/corrupted at Addr=0x%h. PC=0x%h. Stopping sim.", $time, dut.data_addr, dut.instr_addr);
+                    $finish;
+                end
+            end
+        end
+
 
         // ---------------------------------------------------------
         // 6. CPU Instruction & Memory Tracer (Disabled for Speed)
@@ -444,15 +469,13 @@
         end
 
         always @(posedge clk) begin
-            if ($time > 9140000 && $time < 9160000) begin
-                $display("Time=%0t | rstn=%b | state=%b valid=%b ready=%b addr=0x%h | htrans=%b haddr=0x%h hready_out=%b | sram_sel=%b sram_ready=%b sram_rdata=0x%h",
+            if ($time > 8670000 && $time < 8680000) begin
+                $display("Time=%0t | rstn=%b | state=%b valid=%b ready=%b addr=0x%h | htrans=%b haddr=0x%h hwrite=%b hwdata=0x%h hready_out=%b hrdata=0x%h",
                     $time, rstn,
                     dut.wrapper.state, dut.cpu_mem_valid, dut.cpu_mem_ready, dut.cpu_mem_addr,
-                    dut.cpu_htrans, dut.cpu_haddr, dut.cpu_hready,
-                    dut.sram_HSEL, dut.sram_HREADY, dut.sram_HRDATA);
+                    dut.cpu_htrans, dut.cpu_haddr, dut.cpu_hwrite, dut.cpu_hwdata, dut.cpu_hready, dut.cpu_hrdata);
             end
         end
-        */
  
         /*
         always @(posedge clk) begin

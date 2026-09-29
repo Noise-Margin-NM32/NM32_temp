@@ -57,6 +57,9 @@ module EF_I2S_TX_APB #(
     output wire [31:0]  PRDATA,
     output wire         IRQ,
 
+    output wire         tx_fifo_full_o,
+    output wire         tx_fifo_empty_o,
+
     output wire         ws,
     output wire         sck,
     output wire         sdo
@@ -164,6 +167,9 @@ module EF_I2S_TX_APB #(
     wire          tx_fifo_empty;
     wire [AW-1:0] tx_fifo_level;
     wire          tx_busy;
+
+    assign tx_fifo_full_o  = tx_fifo_full;
+    assign tx_fifo_empty_o = tx_fifo_empty;
 
     wire clock_gate_enabled = sc_testmode ? 1'b1 : GCLK_REG[0];
     wire tx_core_en = tx_en_reg & clock_gate_enabled;

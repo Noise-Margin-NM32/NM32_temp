@@ -283,7 +283,7 @@ assign ibex_dmem_hresp = mst_hresp_out;
 
 generate
     genvar i;
-    for(i = 2; i<15; i = i+1) begin
+    for(i = 4; i<15; i = i+1) begin
         assign mst_hbusreq[i] = 1'b0;
 //         assign mst_hlock[i] = 1'b0; //changed by agy
         assign mst_htrans[i] = 2'b00; //changed by agy
@@ -433,17 +433,17 @@ assign i2s_PWRITE = bridge_p_write; // From bridge to APB slave
 assign i2s_PWDATA = bridge_p_wdata; // From bridge to APB slave
 assign i2s_PADDR = bridge_p_addr;   // From bridge to APB slave
 assign i2s_PENABLE = bridge_p_enable; // From bridge to APB slave
-assign i2s_PSEL = bridge_p_selx[0]; // From bridge to APB slave
-assign bridge_pready[0] = i2s_PREADY; // From APB slave to bridge
-assign bridge_p_rdata[0] = i2s_PRDATA; // From APB slave to bridge
+assign i2s_PSEL = bridge_p_selx[1]; // From bridge to APB slave (I2S RX @ SLAVE_ADDR_START[1])
+assign bridge_pready[1] = i2s_PREADY; // From APB slave to bridge
+assign bridge_p_rdata[1] = i2s_PRDATA; // From APB slave to bridge
 
 assign i2s_tx_PWRITE = bridge_p_write; // From bridge to APB slave
 assign i2s_tx_PWDATA = bridge_p_wdata; // From bridge to APB slave
 assign i2s_tx_PADDR = bridge_p_addr;   // From bridge to APB slave
 assign i2s_tx_PENABLE = bridge_p_enable; // From bridge to APB slave
-assign i2s_tx_PSEL = bridge_p_selx[1]; // From bridge to APB slave
-assign bridge_pready[1] = i2s_tx_PREADY; // From APB slave to bridge
-assign bridge_p_rdata[1] = i2s_tx_PRDATA; // From APB slave to bridge
+assign i2s_tx_PSEL = bridge_p_selx[2]; // From bridge to APB slave (I2S TX @ SLAVE_ADDR_START[2])
+assign bridge_pready[2] = i2s_tx_PREADY; // From APB slave to bridge
+assign bridge_p_rdata[2] = i2s_tx_PRDATA; // From APB slave to bridge
 
 // assign slv_hrdata_v = {(NUM_SLVS-2){32'b0}, sram_HRDATA, bridge_h_rdata}; // To arbiter (only from slave 0)
 // assign slv_hresp_v = {(NUM_SLVS-1){2'b00}, bridge_h_resp}; // To arbiter (only from slave 0)
@@ -500,18 +500,18 @@ endgenerate
 assign spi_PADDR = bridge_p_addr; // From bridge to APB slave
 assign spi_PWDATA = bridge_p_wdata; // From bridge to APB slave
 assign spi_PWRITE = bridge_p_write; // From bridge to APB slave
-assign spi_PSEL = bridge_p_selx[2]; // From bridge to APB slave
+assign spi_PSEL = bridge_p_selx[3]; // From bridge to APB slave (SPI @ SLAVE_ADDR_START[3])
 assign spi_PENABLE = bridge_p_enable; // From bridge to APB slave
-assign bridge_pready[2] = spi_PREADY; // From APB slave to bridge
-assign bridge_p_rdata[2] = spi_PRDATA; // From APB slave to
+assign bridge_pready[3] = spi_PREADY; // From APB slave to bridge
+assign bridge_p_rdata[3] = spi_PRDATA; // From APB slave to
 
 assign dma_rx_PADDR = bridge_p_addr;
 assign dma_rx_PWDATA = bridge_p_wdata;
 assign dma_rx_PWRITE = bridge_p_write;
-assign dma_rx_PSEL = bridge_p_selx[3];
+assign dma_rx_PSEL = bridge_p_selx[4]; // DMA_RX @ SLAVE_ADDR_START[4]
 assign dma_rx_PENABLE = bridge_p_enable;
-assign bridge_pready[3] = dma_rx_PREADY;
-assign bridge_p_rdata[3] = dma_rx_PRDATA;
+assign bridge_pready[4] = dma_rx_PREADY;
+assign bridge_p_rdata[4] = dma_rx_PRDATA;
 
 wire        dma_tx_irq;
 wire        dma_tx_check;
@@ -544,13 +544,13 @@ wire        gpio_IRQ;
 assign gpio_PADDR = bridge_p_addr;
 assign gpio_PWDATA = bridge_p_wdata;
 assign gpio_PWRITE = bridge_p_write;
-assign gpio_PSEL = bridge_p_selx[4];
+assign gpio_PSEL = bridge_p_selx[0]; // GPIO @ SLAVE_ADDR_START[0]
 assign gpio_PENABLE = bridge_p_enable;
-assign bridge_pready[4] = gpio_PREADY;
-assign bridge_p_rdata[4] = gpio_PRDATA;
+assign bridge_pready[0] = gpio_PREADY;
+assign bridge_p_rdata[0] = gpio_PRDATA;
 
 dma_controller dma_rx_inst (
-    .PCLK(pclk),
+    .PCLK(clk),
     .HCLK(clk),
     .PRESETN(rstn),
     .HRESETN(rstn),
@@ -574,12 +574,13 @@ dma_controller dma_rx_inst (
     .irq(dma_rx_irq),
     .HRDATA(mst_hrdata_out),
     .HWDATA(mst_hwdata[2]),
-    .check(dma_rx_check)
+    .check(dma_rx_check),
+    .DREQ(~i2s_rx_fifo_empty)
 );
 assign mst_hsize[2] = 3'b010; // 32-bit transfers
 
 dma_controller dma_tx_inst (
-    .PCLK(pclk),
+    .PCLK(clk),
     .HCLK(clk),
     .PRESETN(rstn),
     .HRESETN(rstn),
@@ -603,7 +604,8 @@ dma_controller dma_tx_inst (
     .irq(dma_tx_irq),
     .HRDATA(mst_hrdata_out),
     .HWDATA(mst_hwdata[3]),
-    .check(dma_tx_check)
+    .check(dma_tx_check),
+    .DREQ(~i2s_tx_fifo_full)
 );
 assign mst_hsize[3] = 3'b010; // 32-bit transfers
 
@@ -632,6 +634,35 @@ wire [31:0] data_wdata;
 wire [31:0] data_rdata;
 wire        data_err;
 
+// Ibex register file (lives outside ibex_core; ibex_top normally wires this,
+// but this integration instantiates ibex_core directly).
+wire [4:0]  ibex_rf_raddr_a, ibex_rf_raddr_b, ibex_rf_waddr_wb;
+wire [31:0] ibex_rf_rdata_a, ibex_rf_rdata_b, ibex_rf_wdata_wb;
+wire        ibex_rf_we_wb;
+
+ibex_register_file_ff #(
+    .RV32E(0),
+    .DataWidth(32),
+    .DummyInstructions(0)
+) u_ibex_regfile (
+    .clk_i(clk),
+    .rst_ni(rstn),
+
+    .test_en_i(1'b0),
+    .dummy_instr_id_i(1'b0),
+    .dummy_instr_wb_i(1'b0),
+
+    .raddr_a_i(ibex_rf_raddr_a),
+    .rdata_a_o(ibex_rf_rdata_a),
+
+    .raddr_b_i(ibex_rf_raddr_b),
+    .rdata_b_o(ibex_rf_rdata_b),
+
+    .waddr_a_i(ibex_rf_waddr_wb),
+    .wdata_a_i(ibex_rf_wdata_wb),
+    .we_a_i(ibex_rf_we_wb)
+);
+
 ibex_core #(
     .RV32M(ibex_pkg::RV32MFast),
     .BranchPredictor(1),
@@ -649,6 +680,14 @@ ibex_core #(
     .instr_addr_o(instr_addr),
     .instr_rdata_i(instr_rdata),
     .instr_err_i(instr_err),
+
+    .rf_raddr_a_o(ibex_rf_raddr_a),
+    .rf_raddr_b_o(ibex_rf_raddr_b),
+    .rf_waddr_wb_o(ibex_rf_waddr_wb),
+    .rf_we_wb_o(ibex_rf_we_wb),
+    .rf_wdata_wb_ecc_o(ibex_rf_wdata_wb),
+    .rf_rdata_a_ecc_i(ibex_rf_rdata_a),
+    .rf_rdata_b_ecc_i(ibex_rf_rdata_b),
 
     .data_req_o(data_req),
     .data_gnt_i(data_gnt),
@@ -823,7 +862,7 @@ AHB_to_APB_Bridge #(
 bridge (
     //inputs
     .h_clk(clk),
-    .pclk(pclk), // ADDED PCLK
+    .pclk(clk), // ADDED PCLK
     .h_reset_n(rstn),
     .h_write(bridge_h_write), // From arbiter to bridge
     .h_sel_apb(bridge_h_sel_apb), // Assuming slave 0 is the APB bridge
@@ -861,8 +900,13 @@ SRAM_1024x32_ahb_wrapper sram0 (
     .HRDATA(sram_HRDATA)
 );
 
+wire i2s_rx_fifo_empty;
+wire i2s_rx_fifo_full;
+wire i2s_tx_fifo_empty;
+wire i2s_tx_fifo_full;
+
 EF_I2S_APB #(.AW(i2s_AW), .DW(i2s_DW)) i2s_apb (
-    .PCLK(pclk),
+    .PCLK(clk),
     .PRESETn(rstn),
     .PWRITE(i2s_PWRITE),
     .PWDATA(i2s_PWDATA),
@@ -872,6 +916,8 @@ EF_I2S_APB #(.AW(i2s_AW), .DW(i2s_DW)) i2s_apb (
     .PREADY(i2s_PREADY),
     .PRDATA(i2s_PRDATA),
     .IRQ(i2s_IRQ),
+    .rx_fifo_empty(i2s_rx_fifo_empty),
+    .rx_fifo_full(i2s_rx_fifo_full),
     .ws(rx_ws),
     .sck(rx_sck),
     .sdi(sdi)
@@ -879,7 +925,7 @@ EF_I2S_APB #(.AW(i2s_AW), .DW(i2s_DW)) i2s_apb (
 
 EF_I2S_TX_APB #(.AW(i2s_AW), .DW(i2s_DW)) i2s_tx_apb (
     .sc_testmode(1'b0),
-    .PCLK(pclk),
+    .PCLK(clk),
     .PRESETn(rstn),
     .PWRITE(i2s_tx_PWRITE),
     .PWDATA(i2s_tx_PWDATA),
@@ -889,6 +935,8 @@ EF_I2S_TX_APB #(.AW(i2s_AW), .DW(i2s_DW)) i2s_tx_apb (
     .PREADY(i2s_tx_PREADY),
     .PRDATA(i2s_tx_PRDATA),
     .IRQ(i2s_tx_IRQ),
+    .tx_fifo_full_o(i2s_tx_fifo_full),
+    .tx_fifo_empty_o(i2s_tx_fifo_empty),
     .sdo(sdo),
     .ws(tx_ws),
     .sck(tx_sck)
@@ -908,7 +956,7 @@ boot_rom_ahb boot_rom (
 );
 
 EF_GPIO8_APB gpio_apb_inst (
-    .PCLK(pclk),
+    .PCLK(clk),
     .PRESETn(rstn),
     .PWRITE(gpio_PWRITE),
     .PWDATA(gpio_PWDATA),
@@ -1076,7 +1124,7 @@ EF_GPIO8_APB gpio_apb_inst (
         .BUFFER_DEPTH(SPI_BUF_DEPTH),
         .APB_ADDR_WIDTH(12)
     ) spi_inst (
-    .HCLK   (pclk),
+    .HCLK   (clk),
     .HRESETn(rstn),
     .PADDR  (spi_PADDR[11:0]),
     .PWDATA (spi_PWDATA),

@@ -38,7 +38,10 @@ module EF_I2S_APB #(
     output wire         PREADY,
     output wire [ 31:0] PRDATA,
     output wire         IRQ,
-    
+
+    output wire         rx_fifo_empty,
+    output wire         rx_fifo_full,
+
     input  wire [1-1:0] ws,
     input  wire [1-1:0] sck,
     input  wire [1-1:0] sdi
@@ -284,4 +287,7 @@ module EF_I2S_APB #(
 
   assign RXDATA_WIRE = fifo_rdata;
   assign fifo_rd = (apb_re & (PADDR[16-1:0] == RXDATA_REG_OFFSET));
+
+  assign rx_fifo_empty = fifo_empty;
+  assign rx_fifo_full  = fifo_full;
 endmodule

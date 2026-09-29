@@ -34,8 +34,8 @@
 #define FFT_BASE        0x40000000
 #define PING_PONG_BASE  0x50000000
 #define IFFT_BASE       0x60000000
-#define I2S_RX_BASE     0x20000000
-#define I2S_TX_BASE     0x20010000
+#define I2S_RX_BASE     0x20010000
+#define I2S_TX_BASE     0x20020000
 
 #define I2S_RX_DATA   (*((volatile uint32_t*)(I2S_RX_BASE + 0x00)))
 #define I2S_RX_PR     (*((volatile uint32_t*)(I2S_RX_BASE + 0x04)))
@@ -276,7 +276,7 @@ static void init_i2s(void) {
 /*  DMA Base and Registers                                                    */
 /* -------------------------------------------------------------------------- */
 
-#define DMA_RX_BASE     0x20030000
+#define DMA_RX_BASE     0x20040000
 #define DMA_TX_BASE     0x20050000
 
 #define DMA_RX_SRC_ADDR (*((volatile uint32_t*)(DMA_RX_BASE + 0x00)))

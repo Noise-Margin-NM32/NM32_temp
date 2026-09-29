@@ -249,7 +249,9 @@ module dma_controller(
     output reg         irq,
     input  wire [31:0] HRDATA,
     output reg  [31:0] HWDATA,
-    output reg         check
+    output reg         check,
+
+    input  wire        DREQ       // DMA request handshake from peripheral (FIFO not-empty/not-full)
 );
  
 reg [31:0] src_addr_reg, dst_addr_reg, len_reg, ctrl_reg, status_reg;
@@ -285,8 +287,9 @@ localparam IDLE       = 3'b000,
            READ_DATA  = 3'b011,   // wait for HRDATA, latch it
            WRITE_ADDR = 3'b100,   // drive dst write address
            WRITE_DATA = 3'b101,   // HWDATA captured by slave
-           DONE       = 3'b110;
- 
+           DONE       = 3'b110,
+           WAIT_DREQ  = 3'b111;   // yield the bus, wait for peripheral DREQ pulse
+
 reg [2:0] current_state, next_state;
  
 reg [31:0] len_cnt_next;
@@ -343,13 +346,14 @@ end
 // ── Next-state logic ──────────────────────────────────────────
 always @(*) begin
     case (current_state)
-        IDLE:       next_state = ctrl_reg[0] ? BUS_REQ    : IDLE;
+        IDLE:       next_state = ctrl_reg[0] ? WAIT_DREQ  : IDLE;
+        WAIT_DREQ:  next_state = DREQ        ? BUS_REQ    : WAIT_DREQ;
         BUS_REQ:    next_state = (HGRANT && HREADY) ? ADDR_PHASE : BUS_REQ;
         ADDR_PHASE: next_state = READ_DATA;
         READ_DATA:  next_state = HREADY      ? WRITE_ADDR : READ_DATA;
         WRITE_ADDR: next_state = WRITE_DATA;
         WRITE_DATA: next_state = HREADY
-                                   ? (len_cnt_next == 0 ? DONE : ADDR_PHASE)
+                                   ? (len_cnt_next == 0 ? DONE : WAIT_DREQ)
                                    : WRITE_DATA;
         DONE:       next_state = IDLE;
         default:    next_state = IDLE;
@@ -361,7 +365,7 @@ always @(*) HWDATA = data_buf;
  
 // ── AHB combinational outputs ─────────────────────────────────
 always @(*) begin
-    HBUSREQ = (current_state != IDLE && current_state != DONE);
+    HBUSREQ = (current_state != IDLE && current_state != DONE && current_state != WAIT_DREQ);
     HTRANS  = 2'b00;
     HADDR   = 32'h0;
     HWRITE  = 1'b0;

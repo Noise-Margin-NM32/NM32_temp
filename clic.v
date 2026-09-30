@@ -12,17 +12,13 @@
 //   0x80       IP         pending bits. Sticky: set by any high input.
 //                         Write: IP <= (IP & wdata) | inputs, i.e. write 0
 //                         to a bit to clear it.
-//   0x84       IE         enable mask (write)
-//   0x88       THRESHOLD  only priorities > THRESHOLD reach the CPU (write)
+//   0x84       IE         enable mask (R/W)
+//   0x88       THRESHOLD  only priorities > THRESHOLD reach the CPU (R/W)
 //
 // NM32 source mapping (NM32_top.sv): 0 I2S RX, 1 I2S TX, 2 FFT, 3 IFFT,
 //   4 DMA, 5 GPIO, 6-15 unused.
-// Output: irq_valid_o/irq_id_o/irq_level_o. NM32_top.sv converts this to
-//   PicoRV32 irq bit (1 << irq_id_o).
-//
-// KNOWN ISSUE: the read decoder uses word indices 0x20/0x24/0x28 (bytes
-//   0x80/0x90/0xA0), so IE and THRESHOLD read back from 0x90/0xA0, not the
-//   0x84/0x88 they are written at. Unused by current firmware (it polls).
+// Output: irq_valid_o/irq_id_o/irq_level_o. NM32_top.sv drives Ibex
+//   irq_external_i from irq_valid_o; the ISR reads IP to find the source.
 //==========================================================================
 module clic_ahb (
     input  wire        hclk,         // AHB Clock
@@ -126,14 +122,14 @@ module clic_ahb (
     end
 
     // -------------------------------------------------------------------------
-    // 4. Register reads (see KNOWN ISSUE in the header)
+    // 4. Register reads
     // -------------------------------------------------------------------------
     always @(*) begin
         if (reg_read_phase) begin
             case (reg_addr_latched)
                 7'h20:   hrdata_o = {16'h0, ip_reg}; // Zero-pad to match 32-bit CPU bus
-                7'h24:   hrdata_o = {16'h0, ie_reg}; 
-                7'h28:   hrdata_o = {29'h0, threshold_reg};
+                7'h21:   hrdata_o = {16'h0, ie_reg}; 
+                7'h22:   hrdata_o = {29'h0, threshold_reg};
                 default: begin
                     if (reg_addr_latched < 16) begin
                         hrdata_o = {29'h0, prio_reg[reg_addr_latched]};

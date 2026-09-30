@@ -17,6 +17,13 @@
 
 */
 
+//==========================================================================
+// NM32 integration notes
+// Upstream: Efabless EF_WDT32 (Apache-2.0).
+// Local change: clock-gating cell rst_n connected to PRESETn.
+// Interrupt-only watchdog (no reset output): IRQ goes to a CLIC source.
+//==========================================================================
+
 /* THIS FILE IS GENERATED, DO NOT EDIT */
 
 `timescale 1ns / 1ps
@@ -53,6 +60,7 @@ module EF_WDT32_APB (
 
       // USE_POWER_PINS
       .clk(PCLK),
+      .rst_n(PRESETn),
       .clk_en(clk_gated_en),
       .clk_o(clk_g)
   );

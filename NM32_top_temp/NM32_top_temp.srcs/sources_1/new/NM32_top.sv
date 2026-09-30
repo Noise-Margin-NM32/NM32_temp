@@ -69,9 +69,9 @@ localparam i2s_DW = 32;
 
 // localparam SPI_BUF_DEPTH = 10;
 
-localparam NUM_APB_SLAVES = 6; // GPIO, I2S, I2S_TX, SPI, DMA_RX, DMA_TX
-localparam [NUM_APB_SLAVES-1:0][31:0] SLAVE_ADDR_START = {32'h2005_0000, 32'h2004_0000, 32'h2003_0000, 32'h2002_0000, 32'h2001_0000, 32'h2000_0000};
-localparam [NUM_APB_SLAVES-1:0][31:0] SLAVE_ADDR_END   = {32'h2005_FFFF, 32'h2004_FFFF, 32'h2003_FFFF, 32'h2002_FFFF, 32'h2001_FFFF, 32'h2000_FFFF};
+localparam NUM_APB_SLAVES = 7; // GPIO, I2S, I2S_TX, SPI, DMA_RX, DMA_TX, WDT
+localparam [NUM_APB_SLAVES-1:0][31:0] SLAVE_ADDR_START = {32'h2006_0000, 32'h2005_0000, 32'h2004_0000, 32'h2003_0000, 32'h2002_0000, 32'h2001_0000, 32'h2000_0000};
+localparam [NUM_APB_SLAVES-1:0][31:0] SLAVE_ADDR_END   = {32'h2006_FFFF, 32'h2005_FFFF, 32'h2004_FFFF, 32'h2003_FFFF, 32'h2002_FFFF, 32'h2001_FFFF, 32'h2000_FFFF};
 
 // wire remap;
 
@@ -101,15 +101,6 @@ wire [31:0] ibex_dmem_hrdata;
 wire [1:0]  ibex_dmem_hresp;
 wire        ibex_dmem_hgrant;
 wire        ibex_dmem_hbusreq;
-// wire cpu_hlock; //changed by agy
-// wire [2:0] cpu_hburst; //changed by agy
-// wire [3:0] cpu_hprot; //changed by agy
-
-// assign cpu_hbusreq; // CPU always requests the bus?
-// assign cpu_hlock;   // No locked transfers for now
-// assign remap = 1'b0;  // No remapping for now
-// assign cpu_hburst; // No bursts for now
-// assign cpu_hprot; // Default protection
 
 
 // Ibex native signals handled directly inside wrappers
@@ -297,10 +288,6 @@ generate
 endgenerate
 
 
-assign cpu_hgrant = mst_hgrant[0];  // CPU gets from arbiter
-assign cpu_hready = mst_hready_out;
-assign cpu_hrdata = mst_hrdata_out;
-assign cpu_hresp = mst_hresp_out;
 
 
 //bridge connections (assuming slave 0 is the APB bridge)
@@ -418,7 +405,7 @@ wire [2:0]  clic_HSIZE;
 wire [31:0] clic_HWDATA;
 wire        clic_HREADY;
 wire        clic_HREADYOUT;
-wire [1:0]  clic_HRESP;
+wire        clic_HRESP;
 wire [31:0] clic_HRDATA;
 
 assign clic_HSEL      = slv_hsel[6];
@@ -473,6 +460,7 @@ assign slv_hready_in_v[3] = fft_HREADYOUT;
 
 assign slv_hrdata_v[4] = scratch_HRDATA; // To arbiter (only from slave 4)
 assign slv_hresp_v[4] = scratch_HRESP;
+assign scratch_HRESP  = 2'b00;  // ping_pong_ram has no HRESP port: always OKAY
 assign slv_hready_in_v[4] = scratch_HREADYOUT;
 // assign slv_hsplit_v[4] = 16'b0; //changed by agy
 
@@ -549,6 +537,27 @@ assign gpio_PENABLE = bridge_p_enable;
 assign bridge_pready[0] = gpio_PREADY;
 assign bridge_p_rdata[0] = gpio_PRDATA;
 
+// Watchdog (EF_WDT32) @ SLAVE_ADDR_START[6]. Interrupt-only: WDTTO raises
+// its IRQ (CLIC source 7); it has no reset output.
+wire [31:0] wdt_PRDATA;
+wire        wdt_PREADY;
+wire        wdt_IRQ;
+assign bridge_pready[6]  = wdt_PREADY;
+assign bridge_p_rdata[6] = wdt_PRDATA;
+
+EF_WDT32_APB wdt_apb_inst (
+    .PCLK(clk),
+    .PRESETn(rstn),
+    .PWRITE(bridge_p_write),
+    .PWDATA(bridge_p_wdata),
+    .PADDR(bridge_p_addr),
+    .PENABLE(bridge_p_enable),
+    .PSEL(bridge_p_selx[6]),
+    .PREADY(wdt_PREADY),
+    .PRDATA(wdt_PRDATA),
+    .IRQ(wdt_IRQ)
+);
+
 dma_controller dma_rx_inst (
     .PCLK(clk),
     .HCLK(clk),
@@ -614,7 +623,6 @@ assign mst_hsize[3] = 3'b010; // 32-bit transfers
 wire        clic_irq_valid;
 wire [3:0]  clic_irq_id;
 wire [2:0]  clic_irq_level;
-wire [31:0] cpu_irq;
 
 // Instantiate Ibex
 wire        instr_req;
@@ -769,8 +777,6 @@ ibex_to_ahb dmem_wrapper (
     .HGRANT(ibex_dmem_hgrant)
 );
 
-// Convert CLIC's vectored output into a standard 32-bit irq vector for picorv32
-assign cpu_irq = clic_irq_valid ? (32'b1 << clic_irq_id) : 32'b0;
 
 // Bundle peripheral interrupts for the CLIC
 wire [15:0] clic_intr_src;
@@ -781,7 +787,8 @@ assign clic_intr_src[3] = ifft_irq;
 assign clic_intr_src[4] = dma_rx_irq;
 assign clic_intr_src[5] = dma_tx_irq;
 assign clic_intr_src[6] = gpio_IRQ;
-assign clic_intr_src[15:7] = 9'b0;
+assign clic_intr_src[7] = wdt_IRQ;
+assign clic_intr_src[15:8] = 8'b0;
 
 clic_ahb clic_inst (
     .hclk(clk),
@@ -795,7 +802,7 @@ clic_ahb clic_inst (
     .hwdata_i(clic_HWDATA),
     .hready_o(clic_HREADYOUT),
     .hrdata_o(clic_HRDATA),
-    .hresp_o(clic_HRESP[0]),
+    .hresp_o(clic_HRESP),
     
     .intr_src_i(clic_intr_src),
     

@@ -45,8 +45,11 @@ SECTIONS
         *(.text.*)
         *(.rodata)                 /* Constant globals and strings */
         *(.rodata.*)
+        *(.srodata)                /* Small constants (gp-relative)     */
+        *(.srodata.*)
+        *(.eh_frame)
         . = ALIGN(4);
-        _text_ram_end = .;         /* End address in RAM */
+        _text_ram_end = .;        /* End address in RAM */
     } > RAM AT> FLASH
 
     /* Location of the .text binary payload inside the external Flash */
@@ -60,6 +63,8 @@ SECTIONS
         _data_ram_start = .;       /* Start of mutable data in RAM */
         *(.data)                   /* Initialized variables (e.g., int x = 5;) */
         *(.data.*)
+        *(.sdata)                  /* Small initialized globals: must be  */
+        *(.sdata.*)                /* inside the range the bootloader copies */
         . = ALIGN(4);
         _data_ram_end = .;         /* End of mutable data in RAM */
     } > RAM AT> FLASH
@@ -75,6 +80,8 @@ SECTIONS
         _bss_start = .;
         *(.bss)
         *(.bss.*)
+        *(.sbss)                   /* Small zero-init globals: must be   */
+        *(.sbss.*)                 /* inside the range start.S clears    */
         *(COMMON)
         . = ALIGN(4);
         _bss_end = .;

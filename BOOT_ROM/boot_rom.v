@@ -3,7 +3,7 @@
 // Module  : boot_rom_ahb
 // Purpose : 4 KB read-only boot memory, AHB slave 2 @ 0x0000_0000. Holds
 //           start.S + bootloader.c (the .boot section of firmware.elf).
-//           PicoRV32 resets to 0x80 inside this ROM.
+//           Ibex (boot_addr 0) resets to 0x80 inside this ROM.
 // Clocks  : HCLK (system clk)
 // Notes   : - Contents come from firmware/bootrom.hex via $readmemh. The
 //             relative path is resolved from the XSim run directory
@@ -31,8 +31,12 @@ module boot_rom_ahb (
     // 4KB Memory Array (1024 words x 32 bits)
     reg [31:0] memory [0:1023];
 
-    // Firmware image (build with `make -C firmware`)
+    // Firmware image (build with `make -C firmware`). Words past the end of
+    // the image read as 0 rather than X: Ibex prefetches beyond the last
+    // instruction, and X there trips its known-value assertions.
+    integer i;
     initial begin
+        for (i = 0; i < 1024; i = i + 1) memory[i] = 32'h0;
         $readmemh("./../../../../../firmware/bootrom.hex", memory);
     end
 

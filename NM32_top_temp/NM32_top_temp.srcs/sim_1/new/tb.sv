@@ -191,11 +191,25 @@ module tb;
 
     // X check on the read data Ibex consumes.
     reg data_is_write;       // write flag of the data-port access in flight
+    // Granted fetch addresses, oldest first, so an X response is reported
+    // against the address it belongs to (Ibex keeps up to 2 in flight).
+    reg [31:0] fq [0:3];
+    reg [1:0]  fq_wr = 0, fq_rd = 0;
     always @(posedge clk) begin
         if (dut.data_gnt) data_is_write <= dut.data_we;
+        if (dut.instr_req && dut.instr_gnt) begin fq[fq_wr] <= dut.instr_addr; fq_wr <= fq_wr + 1; end
+        if (dut.instr_rvalid) fq_rd <= fq_rd + 1;
         if (rstn) begin
+            if ($isunknown({dut.instr_gnt, dut.instr_rvalid, dut.instr_err,
+                            dut.data_gnt, dut.data_rvalid, dut.data_err,
+                            dut.clic_irq_valid})) begin
+                $display("Time=%0t: [XCHECK] X on Ibex handshake/irq: igt=%b irv=%b ier=%b dgt=%b drv=%b der=%b irq=%b",
+                         $time, dut.instr_gnt, dut.instr_rvalid, dut.instr_err,
+                         dut.data_gnt, dut.data_rvalid, dut.data_err, dut.clic_irq_valid);
+                $finish;
+            end
             if (dut.instr_rvalid && $isunknown(dut.instr_rdata)) begin
-                $display("Time=%0t: [XCHECK] X on instr_rdata, fetch addr 0x%08h", $time, dut.instr_addr);
+                $display("Time=%0t: [XCHECK] X on instr_rdata, fetch addr 0x%08h (current request 0x%08h)", $time, fq[fq_rd], dut.instr_addr);
                 $finish;
             end
             if (dut.data_rvalid && !data_is_write && $isunknown(dut.data_rdata)) begin

@@ -1,3 +1,14 @@
+//==========================================================================
+// Project : NM32 "KAVACH" SoC (Noise Margin)
+// Module  : butterfly_folded
+// Purpose : Multi-cycle radix-2 DIT butterfly, signed Q15:
+//              X = (A + B*W) / 2
+//              Y = (A - B*W) / 2
+//           Cycle 1: 4 products; 2: B*W >>> 15; 3: 17-bit add/sub, >>> 1;
+//           4: done=1 (outputs valid); 5: back to idle.
+// Clocks  : clk, active-high rst
+// Notes   : The /2 per stage prevents overflow over the 9 stages.
+//==========================================================================
 `timescale 1ns / 1ps
 
 module butterfly_folded (
@@ -17,8 +28,7 @@ module butterfly_folded (
     reg signed [15:0] BW_re, BW_im;
     reg signed [15:0] A_re_d, A_im_d;
     
-    // THE FIX: 17-bit intermediate wires for overflow-safe addition
-    // We duplicate the 15th bit (the sign bit) to extend the number to 17 bits.
+    // Sign-extend to 17 bits so A +/- BW cannot overflow before the >>> 1
     wire signed [16:0] ext_A_re  = {A_re_d[15], A_re_d};
     wire signed [16:0] ext_A_im  = {A_im_d[15], A_im_d};
     wire signed [16:0] ext_BW_re = {BW_re[15], BW_re};

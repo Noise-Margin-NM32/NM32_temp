@@ -862,7 +862,6 @@ AHB_to_APB_Bridge #(
 bridge (
     //inputs
     .h_clk(clk),
-    .pclk(clk), // ADDED PCLK
     .h_reset_n(rstn),
     .h_write(bridge_h_write), // From arbiter to bridge
     .h_sel_apb(bridge_h_sel_apb), // Assuming slave 0 is the APB bridge

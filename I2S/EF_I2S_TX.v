@@ -21,6 +21,11 @@
         - left_justified = 1 means MSB is transmitted immediately in the slot.
         - left_justified = 0 inserts one dummy bit before MSB, similar to standard I2S.
 */
+//==========================================================================
+// NM32 integration notes
+// NM32-written I2S transmitter core (not upstream), wrapped by
+// EF_I2S_TX_APB.
+//==========================================================================
 
 module EF_I2S_TX #(
     parameter DW = 32,

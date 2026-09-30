@@ -1,9 +1,23 @@
-// *******************************************************************
-// AHB system generator - AHB Slave (Wait type) (converted from VHDL)
-// Original Author: Federico Aglietti, federico.aglietti@opencores.org
-// *******************************************************************
-// Simple AHB slave supporting OKAY/WAIT responses only (v1.0).
-// Errors on unaligned or out-of-range addresses.
+//==========================================================================
+// Project : NM32 "KAVACH" SoC (Noise Margin)
+// Module  : ahb_slave_wait
+// Purpose : Generic AHB slave front-end with wait-state support. Registers
+//           the address phase and converts it into a simple
+//           take (write) / ask (read) handshake for the wrapped logic:
+//              s_wrap_take + s_wrap_addr/s_wrap_wdata  -> write request
+//              s_wrap_ask  + s_wrap_addr               -> read request
+//           HREADYOUT stays low until the wrapped logic answers with
+//           s_wrap_take_ok / s_wrap_ask_ok.
+// Clocks  : hclk (system clk)
+// Origin  : OpenCores "AHB system generator" (Federico Aglietti), converted
+//           from VHDL. Used by nm32_fft_ahb_wrapper / nm32_ifft_ahb_wrapper.
+// Notes   : - Only 32-bit, word-aligned accesses inside [ADDR_LOW, ADDR_HIGH]
+//             are accepted; anything else gets a 2-cycle ERROR response.
+//             The range check uses addr[31:10] (1 KB granularity).
+//           - remap, hburst, hprot, hmaster, hmastlock, mst_running,
+//             prior_in and the FIFO* parameters are legacy generator ports;
+//             they are accepted but have no effect.
+//==========================================================================
 
 `include "ahb_package.vh"
 

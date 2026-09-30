@@ -1,3 +1,18 @@
+//==========================================================================
+// Project : NM32 "KAVACH" SoC (Noise Margin)
+// Module  : flash
+// Purpose : SIMULATION-ONLY behavioural model of an external SPI NOR flash
+//           (instantiated by tb.sv, not by nm32_top). Supports the standard
+//           READ command 0x03: 8-bit cmd + 24-bit byte address, then data
+//           bytes MSB-first with auto-incrementing address.
+// Clocks  : sck from the SoC's SPI master; SPI mode 0
+//           (sample on rising edge, drive on falling edge).
+// Notes   : - Contents come from firmware/firmware_flash.hex (the .text/.data
+//             image that the bootloader copies to SRAM 0x3000_0000).
+//             Path is relative to the XSim run directory.
+//           - Memory is word-organised; current_addr is a BYTE address.
+//           - No timing checks: SPI clock speed is not constrained here.
+//==========================================================================
 `timescale 1ns / 1ps
 
 module flash (
@@ -7,7 +22,7 @@ module flash (
     output reg sdi  // Serial Data In to SoC Master <- Flash Output
 );
 
-    // 64KB Flash Memory Array (65,536 bytes)
+    // 65536 x 32-bit words (only the low part is filled by the hex image)
     reg [31 : 0] flash_mem [0:65535]; 
     
     // Internal registers
@@ -39,13 +54,17 @@ module flash (
             // Combining previous shifted bits with the live 'sdo' line avoids LSB lag
             if (bit_count == 7) begin
                 current_cmd <= {shift_reg[6:0], sdo};
+`ifdef NM32_TRACE
                 $display("Time=%0t: [FLASH] Captured Command = 0x%02h", $time, {shift_reg[6:0], sdo});
+`endif
             end
             
             // Capture 24-bit Address at Bit 31
             if (bit_count == 31) begin
                 current_addr <= {shift_reg[22:0], sdo};
+`ifdef NM32_TRACE
                 $display("Time=%0t: [FLASH] Captured Address = 0x%06h", $time, {shift_reg[22:0], sdo});
+`endif
             end
             
             // Auto-increment the internal flash address on every 8-bit byte boundary 
@@ -63,7 +82,11 @@ module flash (
 
     always @(negedge sck or posedge csn) begin
         if (csn) begin
+`ifdef VERILATOR
+            sdi <= 1'b0; // no tri-state support in the Verilator flow
+`else
             sdi <= 1'bz; // High impedance when Flash is unselected
+`endif
         end else begin
             // If we have received the full command + address, and it's a standard READ (0x03)
             if (bit_count >= 32 && current_cmd == 8'h03) begin

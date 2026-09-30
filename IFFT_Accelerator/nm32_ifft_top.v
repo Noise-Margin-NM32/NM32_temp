@@ -1,3 +1,19 @@
+//==========================================================================
+// Project : NM32 "KAVACH" SoC (Noise Margin)
+// Module  : nm32_ifft_top
+// Purpose : 512-point in-place iterative radix-2 IFFT engine using one folded
+//           butterfly (ifft_butterfly_folded). Reads/writes the frame directly in the
+//           ping-pong RAM bank owned by the accelerators.
+//           This is the SAME datapath as nm32_fft_top; it computes an inverse
+//           transform only because firmware loads CONJUGATED twiddles.
+// Clocks  : clk, active-high rst
+// Notes   : - 9 stages x 256 butterflies, ~11 clk per butterfly.
+//           - Expects BIT-REVERSED input order and produces natural order
+//             (firmware does the reordering, see main.c bit_reverse9()).
+//           - Each butterfly scales by 1/2, so the result is scaled by 1/512.
+//           - Data format {re[31:16], im[15:0]}, signed Q15.
+//           - Twiddle RAM: port A = AHB (tw_*_ext), port B = engine.
+//==========================================================================
 `timescale 1ns / 1ps
 
 module nm32_ifft_top (
@@ -27,7 +43,7 @@ module nm32_ifft_top (
     reg [8:0] ram_addr_a_reg, ram_addr_b_reg;
     reg ram_we_a_reg, ram_we_b_reg;
 
-    // Export RAM signals directly instead of multiplexing
+    // Registered data-RAM ports (to ping_pong_ram via the wrapper)
     assign ram_we_a   = ram_we_a_reg;
     assign ram_addr_a = ram_addr_a_reg;
     assign ram_din_a  = ram_din_a_reg;
@@ -77,14 +93,24 @@ module nm32_ifft_top (
         .done(bf_done)
     );
 
-    // ext_dout removed
-
-    reg [3:0] s;
-    reg [9:0] m;
-    reg [8:0] m2;
-    reg [9:0] k;
-    reg [8:0] j;
+    // ---- Loop counters for the 9-stage radix-2 schedule ----
+    reg [3:0] s;        // stage, 1..9
+    reg [9:0] m;        // butterfly group span = 2^s
+    reg [8:0] m2;       // half span = 2^(s-1) = distance between A and B
+    reg [9:0] k;        // group base index
+    reg [8:0] j;        // index inside the group; twiddle = W^(j*512/m)
     reg [2:0] state;
+
+    // ---- Control FSM ----
+    //   0 IDLE     wait for start
+    //   1 ADDR     drive A=k+j, B=k+j+m2 and twiddle address
+    //   2 WAIT     RAM / twiddle read latency
+    //   3 LOAD     capture A, B, W and start the butterfly
+    //   4 BFLY     wait for bf_done, then write X->A, Y->B (in place)
+    //   5 NEXT     advance j/k/s
+    //   7 SETTLE   one idle cycle so counters are stable before ADDR
+    //   6 DONE     1-cycle done pulse
+`ifdef NM32_TRACE
 
     always @(posedge clk) begin
         if (state != 0) begin
@@ -92,6 +118,7 @@ module nm32_ifft_top (
                      $time, state, s, k, j, bf_start, bf_done, done);
         end
     end
+`endif
 
     always @(posedge clk or posedge rst) begin
         if (rst) begin

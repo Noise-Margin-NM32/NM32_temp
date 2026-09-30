@@ -626,7 +626,7 @@ int main(void) {
         /* Wait for DMA to finish its concurrent stream and unpack it */
         wait_and_unpack_dma(HOP, p);
 
-        *((volatile uint32_t*)(SRAM_BASE + 0x7000)) = 0x22220000u | (uint32_t)frame;
+        *((volatile uint32_t*)(SRAM_BASE + 0x7F00)) = 0x22220000u | (uint32_t)frame;
     }
 
     /* Epilogue - stream out the final frame's output, since it never got
@@ -635,7 +635,7 @@ int main(void) {
     wait_and_unpack_dma(HOP, 0);
 
     /* Trigger simulation end */
-    *((volatile uint32_t*)(SRAM_BASE + 0x7000)) = 0x55555555u;
+    *((volatile uint32_t*)(SRAM_BASE + 0x7F00)) = 0x55555555u;
     while (1) ;
     return 0;
 }

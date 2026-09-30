@@ -13,6 +13,12 @@
 	See the License for the specific language governing permissions and 
 	limitations under the License.
 */
+//==========================================================================
+// NM32 integration notes
+// Upstream: Efabless EF_I2S receiver core (Apache-2.0).
+// Wrapped by EF_I2S_APB (I2S RX). Local edits track the wrapper changes
+// (slave-mode ws/sck); see git history.
+//==========================================================================
 `timescale 1ns / 1ps
 `default_nettype        none
 

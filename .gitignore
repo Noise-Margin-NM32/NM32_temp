@@ -1,17 +1,31 @@
+# ---- Vivado-generated project state and logs ----
 *.log
 *.jou
 *.pb
+*.str
 *.wdb
 *.wdf
 *.wcfg
 *.dcp
 *.vds
-__pycache__/
 *.cache/
 *.sim/
-*.log
-*.jou
-*.str
-.Xil/
 *.runs/
 *.hw/
+*.ip_user_files/
+.Xil/
+xsim.dir/
+
+# ---- Firmware build output (bootrom.hex / firmware_flash.hex stay tracked: the sim loads them) ----
+firmware/*.o
+firmware/*.elf
+firmware/*.bin
+firmware/firmware.asm
+
+# ---- Standalone simulation output ----
+*.vcd
+DMA_Module/dma_sim
+verilator_tb/obj_dir/
+
+# ---- Python ----
+__pycache__/

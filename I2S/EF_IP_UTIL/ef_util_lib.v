@@ -1,3 +1,10 @@
+//==========================================================================
+// NM32 integration notes
+// Upstream: Efabless EF_IP_UTIL (Apache-2.0): FIFO, edge detectors,
+// clock-gating cell etc. used by EF_I2S and EF_GPIO8.
+// This is the copy the project compiles. I2S/EF_IP_UTIL/hdl/ef_util_lib.v is
+// an identical copy kept with the upstream IP package layout (not built).
+//==========================================================================
 `ifdef PRINT_LICENSE
 /*
 	Copyright 2024 Efabless Corp

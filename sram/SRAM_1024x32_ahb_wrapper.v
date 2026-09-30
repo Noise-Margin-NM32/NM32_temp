@@ -25,6 +25,23 @@
 //  If you have a separate agreement with Efabless pertaining to the use of this software
 //  then that agreement shall control.
 
+//==========================================================================
+// Project : NM32 "KAVACH" SoC (Noise Margin)
+// Module  : SRAM_1024x32_ahb_wrapper
+// Purpose : 32 KB on-chip SRAM, AHB slave 1 @ 0x3000_0000. Holds the main
+//           application (.text copied from SPI flash by the bootloader),
+//           .data/.bss and the stack (see firmware/sections.ld).
+// Clocks  : HCLK (system clk)
+// Notes   : - Behavioural 8192x32 array (not the EF_SRAM macro despite the
+//             name, which is kept so the instance/ports stay stable).
+//           - Zero wait states: writes land at the end of the data phase,
+//             reads are combinational from the registered address.
+//           - Byte / halfword / word writes (HSIZE) are supported.
+//           - Only HADDR[14:2] is decoded, so the 64 KB AHB window
+//             0x3000_0000-0x3000_FFFF aliases the 32 KB array twice.
+//           - The testbench watches writes to 0x3000_7000 (firmware
+//             handshake words) through this slave's HWDATA.
+//==========================================================================
 `ifdef USE_POWER_PINS
     `define USE_PG_PIN
 `endif
@@ -50,7 +67,9 @@ module SRAM_1024x32_ahb_wrapper #(parameter AW = 12) (
 
 );
 
-    // AHB Protocol Latch
+    // ---------------------------------------------------------------------
+    // 1. AHB address-phase latch
+    // ---------------------------------------------------------------------
     reg [31:0] r_haddr;
     reg       r_hwrite;
     reg [2:0] r_hsize;
@@ -74,9 +93,11 @@ module SRAM_1024x32_ahb_wrapper #(parameter AW = 12) (
         end
     end
     
-    assign HREADYOUT = 1'b1;
-    
-    // 32KB RAM (8192 x 32)
+    assign HREADYOUT = 1'b1;   // never stalls
+
+    // ---------------------------------------------------------------------
+    // 2. Storage: 32 KB (8192 x 32), zero-initialised for simulation
+    // ---------------------------------------------------------------------
     reg [31:0] mem [0:8191];
     integer i;
     initial begin
@@ -86,7 +107,9 @@ module SRAM_1024x32_ahb_wrapper #(parameter AW = 12) (
     end
     wire [12:0] word_addr = r_haddr[14:2];
     
-    // Write Logic
+    // ---------------------------------------------------------------------
+    // 3. Write (data phase), honouring HSIZE and the byte lane
+    // ---------------------------------------------------------------------
     always @(posedge HCLK) begin
         if (r_active && r_hwrite) begin
             if (r_hsize == 3'b000) begin // Byte
@@ -100,15 +123,16 @@ module SRAM_1024x32_ahb_wrapper #(parameter AW = 12) (
             end else begin // Word
                 mem[word_addr] <= HWDATA;
             end
-            if (r_haddr == 32'h30007FFC || r_haddr == 32'h30000FFC) begin
-                $display("Time=%0t: [SRAM WRITE] Addr=0x%08h WordAddr=0x%04x Data=0x%08h HSIZE=0x%x", $time, r_haddr, word_addr, HWDATA, r_hsize);
-            end
+`ifdef NM32_TRACE
+            if (r_haddr == 32'h30007FFC || r_haddr == 32'h30000FFC)
+                $display("Time=%0t: [SRAM WRITE] Addr=0x%08h Data=0x%08h HSIZE=0x%x", $time, r_haddr, HWDATA, r_hsize);
+`endif
         end
     end
     
-    // Read Logic
-    // For 0-wait state AHB, read data must be provided combinatorially during the data phase
-    // based on the registered address (r_haddr).
+    // ---------------------------------------------------------------------
+    // 4. Read: combinational from the registered address (0 wait states)
+    // ---------------------------------------------------------------------
     assign HRDATA = (r_active && !r_hwrite) ? mem[word_addr] : 32'h0;
 
 endmodule

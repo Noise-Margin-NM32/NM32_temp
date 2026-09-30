@@ -1,3 +1,17 @@
+//==========================================================================
+// Project : NM32 "KAVACH" SoC (Noise Margin)
+// Module  : nm32_fft_top
+// Purpose : 512-point in-place iterative radix-2 FFT engine using one folded
+//           butterfly (butterfly_folded). Reads/writes the frame directly in the
+//           ping-pong RAM bank owned by the accelerators.
+// Clocks  : clk, active-high rst
+// Notes   : - 9 stages x 256 butterflies, ~11 clk per butterfly.
+//           - Expects BIT-REVERSED input order and produces natural order
+//             (firmware does the reordering, see main.c bit_reverse9()).
+//           - Each butterfly scales by 1/2, so the result is scaled by 1/512.
+//           - Data format {re[31:16], im[15:0]}, signed Q15.
+//           - Twiddle RAM: port A = AHB (tw_*_ext), port B = engine.
+//==========================================================================
 `timescale 1ns / 1ps
 
 module nm32_fft_top (
@@ -28,7 +42,7 @@ module nm32_fft_top (
     reg [8:0] ram_addr_a_reg, ram_addr_b_reg;
     reg ram_we_a_reg, ram_we_b_reg;
 
-    // Export RAM signals directly instead of multiplexing
+    // Registered data-RAM ports (to ping_pong_ram via the wrapper)
     assign ram_we_a   = ram_we_a_reg;
     assign ram_addr_a = ram_addr_a_reg;
     assign ram_din_a  = ram_din_a_reg;
@@ -78,14 +92,24 @@ module nm32_fft_top (
         .done(bf_done)
     );
 
-    // ext_dout removed
-
-    reg [3:0] s;
-    reg [9:0] m;
-    reg [8:0] m2;
-    reg [9:0] k;
-    reg [8:0] j;
+    // ---- Loop counters for the 9-stage radix-2 schedule ----
+    reg [3:0] s;        // stage, 1..9
+    reg [9:0] m;        // butterfly group span = 2^s
+    reg [8:0] m2;       // half span = 2^(s-1) = distance between A and B
+    reg [9:0] k;        // group base index
+    reg [8:0] j;        // index inside the group; twiddle = W^(j*512/m)
     reg [2:0] state;
+
+    // ---- Control FSM ----
+    //   0 IDLE     wait for start
+    //   1 ADDR     drive A=k+j, B=k+j+m2 and twiddle address
+    //   2 WAIT     RAM / twiddle read latency
+    //   3 LOAD     capture A, B, W and start the butterfly
+    //   4 BFLY     wait for bf_done, then write X->A, Y->B (in place)
+    //   5 NEXT     advance j/k/s
+    //   7 SETTLE   one idle cycle so counters are stable before ADDR
+    //   6 DONE     1-cycle done pulse
+`ifdef NM32_TRACE
 
     always @(posedge clk) begin
         if (state != 0) begin
@@ -93,6 +117,7 @@ module nm32_fft_top (
                      $time, state, s, k, j, bf_start, bf_done, done);
         end
     end
+`endif
 
     always @(posedge clk or posedge rst) begin
         if (rst) begin
@@ -134,11 +159,6 @@ module nm32_fft_top (
                     bf_W_re <= tw_re; bf_W_im <= tw_im;
                     bf_start <= 1;
                     state <= 4;
-                    $display("Time=%0t: [FFT DEBUG] s=%d, k=%d, j=%d | A=(%d,%d) B=(%d,%d) W=(%d,%d)", 
-                        $time, s, k, j, 
-                        $signed(ram_dout_a[31:16]), $signed(ram_dout_a[15:0]),
-                        $signed(ram_dout_b[31:16]), $signed(ram_dout_b[15:0]),
-                        $signed(tw_re), $signed(tw_im));
                 end
                 
                 4: begin
@@ -148,8 +168,6 @@ module nm32_fft_top (
                         ram_din_b_reg <= {bf_Y_re, bf_Y_im};
                         ram_we_a_reg <= 1; ram_we_b_reg <= 1;
                         state <= 5;
-                        $display("Time=%0t: [FFT DEBUG] bf_done | X=(%d,%d) Y=(%d,%d)", 
-                            $time, $signed(bf_X_re), $signed(bf_X_im), $signed(bf_Y_re), $signed(bf_Y_im));
                     end
                 end
                 

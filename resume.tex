@@ -1,0 +1,112 @@
+\documentclass[a4paper,10.5pt]{article}
+
+\usepackage[margin=0.5in,top=0.35in,bottom=0.35in]{geometry}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{fancyhdr}
+\usepackage{setspace}
+\usepackage{tabularx}
+
+\pagestyle{empty}
+\setstretch{0.96}
+
+%---------- Formatting ----------
+\titleformat{\section}{\large\bfseries\scshape}{}{0em}{}[\titlerule]
+\titlespacing*{\section}{0pt}{4pt}{2pt}
+\setlist[itemize]{noitemsep, topsep=0pt, parsep=0pt, left=12pt}
+
+%---------- Document ----------
+\begin{document}
+
+%---------- Header ----------
+\begin{center}
+    {\LARGE \textbf{R Sarang}}\\[3pt]
+    \href{mailto:sarangraghavan14@gmail.com}{sarangraghavan14@gmail.com} $\mid$ +91-94980 88240 $\mid$ Chennai, India \\
+    \href{https://github.com/rsarang14}{github.com/rsarang14} $\mid$ \href{https://www.linkedin.com/in/sarang-raghavan-a04a2b308}{linkedin.com/in/R SARANG}
+\end{center}
+
+%---------- Education ----------
+\section*{Education}
+
+\noindent
+\begin{tabularx}{\linewidth}{@{}X r@{}}
+\textbf{Indian Institute of Information Technology, Design and Manufacturing (IIITDM), Kancheepuram} & \textit{May 2028} \\
+\end{tabularx}\\[1pt]
+Dual Degree: B.Tech in Electronics \& Communication and M.Tech (Honors) in \textbf{VLSI Design} \hfill \textit{CGPA: 9.01}\\
+\textit{Relevant Coursework:} \textbf{Digital IC Design}, \textbf{CMOS VLSI System Design}, \textbf{VLSI Testing \& Testable Design (DFT)}, \textbf{Microprocessors}
+
+
+\noindent
+\begin{tabularx}{\linewidth}{@{}X r@{}}
+\textbf{Indian Institute of Technology (IIT), Madras (Online)} & \textit{May 2028} \\
+\end{tabularx}\\[1pt]
+BS in \textbf{Data Science and Applications} \hfill \textit{CGPA: 8.48}\\
+\textit{Relevant Coursework:} Linear Algebra, Optimization, Probabilistic Models, Machine Learning
+
+%---------- Skills ----------
+\section*{Technical Skills}
+\textbf{Hardware \& VLSI:} \textbf{Verilog}, \textbf{SystemVerilog}, \textbf{RTL Design}, \textbf{Digital ASIC Design}, \textbf{Design for Test (DFT)}, Fault Detection, \textbf{CPU Design}, \textbf{RISC-V Architecture}, CMOS Logic.\\
+\textbf{EDA Tools \& Simulation:} QuestaSim, Xilinx Vivado, Intel Quartus Prime, Cadence (Genus, Conformal, Innovus, Virtuoso).\\
+\textbf{Software \& Scripting:} C, C++, Python, \textbf{Tcl}, Bash/Shell Scripting, Linux (Ubuntu), Git, \textbf{Object-Oriented Programming}.\\
+\textbf{Embedded Systems:} STM32, ESP32, Raspberry Pi, NVIDIA Jetson, Sensor Integration (ADC/DAC, I2C, SPI).
+
+%---------- Professional Development & Certifications ----------
+\section*{Certifications \& Awards}
+\begin{itemize}[leftmargin=1.5em, itemsep=1pt]
+    \item \textbf{ISWDP Certification} -- Advanced training in semiconductor process technology, device design, and microelectronics R\&D tools \hfill \textit{2026}
+    \item \textbf{Highest CGPA Award (Ranked 1st in VLSI)} -- IIITDM Kancheepuram \hfill \textit{2023-24, 2024-25}
+    \item \textbf{Hardware \& Autonomy Awards:} 1st Place at AtomQuest (2025) $\mid$ Judges Innovation Award, Caterpillar Autonomy Challenge, IITM (2026)
+\end{itemize}
+
+%---------- Projects ----------
+\section*{Core Hardware \& VLSI Projects}
+
+\noindent
+\begin{tabularx}{\linewidth}{@{}X r@{}}
+\textbf{1 TOPS (1 Tape Out Per Student) -- VLSI Society of India (VSI) \& C-DAC} & \textit{Nov 2025 -- Present} \\
+\end{tabularx}
+\begin{itemize}[leftmargin=1.5em, itemsep=1pt]
+    \item Selected for a highly competitive national cohort to design and tape-out a \textbf{22nm TSMC RISC-V System-on-Chip (SoC)} targeted for assistive audio signal processing, integrating a \textbf{RISC-V (Ibex) CPU core} over a custom \textbf{AHB} interconnect.
+    \item \textbf{Digital ASIC / RTL design} of a dedicated \textbf{256-point FFT/IFFT hardware accelerator} in \textbf{Verilog/SystemVerilog} for real-time frequency-domain noise suppression, using a resource-shared (folded) butterfly datapath over 16-bit fixed-point complex arithmetic to minimize silicon area.
+    \item Architected a \textbf{zero-copy, ping-pong RAM datapath} enabling the FFT, IFFT, and CPU filtration stages to operate in-place on shared SRAM, cutting originally planned DMA transfers by \textbf{$\sim$80\%}, backed by a round-robin \textbf{AHB arbiter/decoder} with sticky-grant arbitration across CPU and DMA masters.
+    \item Verified full-chip functionality via an \textbf{800M-cycle (100 MHz) SystemVerilog testbench} exercising four consecutive real-time audio frames end-to-end, with in-sim cycle-count instrumentation to benchmark CPU vs. DMA vs. accelerator performance.
+\end{itemize}
+
+
+\noindent
+\begin{tabularx}{\linewidth}{@{}X r@{}}
+\textbf{Custom RISC-V CPU on FPGA -- eYRC 2025 (MazeSolver)} & \textit{Sep 2025 -- Mar 2026} \\
+\end{tabularx}
+\begin{itemize}[leftmargin=1.5em, itemsep=1pt]
+    \item Designed and verified a custom \textbf{32-bit RISC-V CPU core} from scratch using \textbf{Verilog} (\textbf{CPU Design}, \textbf{RTL Design}).
+    \item Synthesized and implemented the RTL on an \textbf{Intel Quartus FPGA}, achieving a maximum clock frequency of \textbf{150 MHz}.
+    \item Engineered hardware-level control units to handle real-time I/O sensor processing, validating closed-loop PID motor actuation on an isolated single-motor testbench with zero OS overhead.
+\end{itemize}
+
+%---------- Experience ----------
+\section*{Experience}
+
+\noindent
+\begin{tabularx}{\linewidth}{@{}X r@{}}
+\textbf{Controls Engineering Intern -- Kineshia Robotics} & \textit{May 2026 -- Aug 2026} \\
+\end{tabularx}
+\begin{itemize}[leftmargin=1.5em, itemsep=1pt]
+    \item Engineered prehensile walking controllers and complex null-space projection algorithms for the Graspman open-chain robotic manipulator using \textbf{C++/Python} (\textbf{Object-Oriented Programming}), increasing operational workspace and grasping success rates by 20\%.
+    \item Executed system-level hardware planning, developing 50+ comprehensive CAD models and finalizing the Bill of Materials (BoM), accelerating physical prototyping cycles by 3 weeks.
+    \item Optimized Prioritized Inverse Kinematics (IK) control loops, reducing computational latency by 40\% (to under 1ms) to ensure real-time stability and high-frequency (1 kHz) trajectory execution.
+\end{itemize}
+
+%---------- Leadership ----------
+\section*{Leadership \& Collaboration}
+
+\noindent
+\begin{tabularx}{\linewidth}{@{}X r@{}}
+\textbf{Student Technical Manager \& Co-Lead -- MaRS (Mars Rover Students) Club} & \textit{2025-2026} \\
+\end{tabularx}
+\begin{itemize}[leftmargin=1.5em, itemsep=1pt]
+    \item Led technical hardware integration and mentored a multidisciplinary engineering team of \textbf{40} students.
+    \item Presented system architecture and embedded design workflows to \textbf{NASA JPL scientists} at IEEE WAMS 2025.
+\end{itemize}
+
+\end{document}

@@ -32,6 +32,10 @@ SECTIONS
         . = ALIGN(4);
     } > ROM
 
+    /* Ibex resets to boot_addr + 0x80: start.S puts a 32-entry vector table
+       first, so _start must land exactly there. */
+    ASSERT(_start == 0x80, "_start must be at 0x80 (Ibex reset vector)")
+
     /* --- 2. Main Application Code Section (.text) --- */
     /* VMA (Runtime) = RAM (0x30000000) | LMA (Storage) = FLASH (0x80000000) */
     .text : {
@@ -79,5 +83,11 @@ SECTIONS
 
     /* --- 5. Stack Pointer Initialization --- */
     /* Top of the 4KB RAM block growing downward */
-    PROVIDE(_stack_top = ORIGIN(RAM) + LENGTH(RAM));
+    /* The top 256 bytes of SRAM (0x3000_7F00-0x3000_7FFF) are the testbench
+       mailbox: +0x00 handshake, +0x20/+0x24/+0x28 trap mcause/mepc/mtval.
+       The stack starts below it, so ordinary stack writes can never look
+       like a mailbox write. main() alone needs ~4.2 KB of stack. */
+    PROVIDE(_mailbox_base = ORIGIN(RAM) + LENGTH(RAM) - 256);
+    PROVIDE(_stack_top = _mailbox_base);
+    ASSERT(_bss_end + 4608 <= _stack_top, "less than 4.5 KB left for the stack: SRAM is full")
 }

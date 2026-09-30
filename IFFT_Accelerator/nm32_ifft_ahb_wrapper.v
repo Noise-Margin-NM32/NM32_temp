@@ -1,3 +1,22 @@
+//==========================================================================
+// Project : NM32 "KAVACH" SoC (Noise Margin)
+// Module  : nm32_ifft_ahb_wrapper
+// Purpose : AHB slave 5 @ 0x6000_0000 for the 512-point IFFT engine
+//           (nm32_ifft_top). Exposes the twiddle RAM and control register on
+//           AHB and passes the engine's data-RAM ports straight out to the
+//           shared ping-pong RAM (zero-copy - frame data never crosses AHB).
+// Clocks  : hclk (system clk); engine reset is active-high (~hresetn).
+//
+// Register map (offset from BASE_ADDR):
+//   0x000-0x7FC  reserved (reads 0; frame data lives in ping_pong_ram)
+//   0x800-0xBFC  twiddle RAM, 256 x {cos[31:16], sin[15:0]} Q15.
+//                Loaded once by firmware at boot.
+//   0xC00        CTRL  write bit0=1 : start (1-cycle pulse)
+//                      read  bit1   : DONE (sticky, cleared by next start)
+//
+// Notes   : ifft_irq = DONE bit (level). ifft_busy is high from start to
+//           done. slv_err / slv_running outputs of ahb_slave_wait are unused.
+//==========================================================================
 `timescale 1ns / 1ps
 
 module nm32_ifft_ahb_wrapper #(
@@ -13,18 +32,13 @@ module nm32_ifft_ahb_wrapper #(
     input  wire        slv_hwrite,
     input  wire [1:0]  slv_htrans,
     input  wire [2:0]  slv_hsize,
-//     input  wire [2:0]  slv_hburst, //changed by agy
     input  wire [31:0] slv_hwdata,
-//     input  wire [3:0]  slv_hprot, //changed by agy
     input  wire        slv_hready,
-//     input  wire [3:0]  slv_hmaster, //changed by agy
-//     input  wire        slv_hmastlock, //changed by agy
     
     // AHB slave outputs
     output wire        slv_hready_out,
     output wire [1:0]  slv_hresp,
     output wire [31:0] slv_hrdata,
-//     output wire [15:0] slv_hsplit, //changed by agy
     output wire        slv_err,
     
     // Hardware Interrupt to CPU
@@ -46,7 +60,7 @@ module nm32_ifft_ahb_wrapper #(
 );
 
     // -----------------------------------------------------------------------
-    // Wrapper Interface Wires
+    // take/ask handshake from ahb_slave_wait
     // -----------------------------------------------------------------------
     wire [31:0] s_wrap_addr;
     wire        s_wrap_take;
@@ -59,7 +73,7 @@ module nm32_ifft_ahb_wrapper #(
     wire        slv_running;
     
     // -----------------------------------------------------------------------
-    // Instantiate the AHB Protocol Layer (Reference IP)
+    // 1. AHB protocol front-end
     // -----------------------------------------------------------------------
     ahb_slave_wait #(
         .NUM_SLV(1),
@@ -75,20 +89,15 @@ module nm32_ifft_ahb_wrapper #(
         .slv_hwrite(slv_hwrite),
         .slv_htrans(slv_htrans),
         .slv_hsize(slv_hsize),
-//         .slv_hburst(slv_hburst), //changed by agy
         .slv_hwdata(slv_hwdata),
-//         .slv_hprot(slv_hprot), //changed by agy
         .slv_hready(slv_hready),
-//         .slv_hmaster(slv_hmaster), //changed by agy
-//         .slv_hmastlock(slv_hmastlock), //changed by agy
         
         .slv_hready_out(slv_hready_out),
         .slv_hresp(slv_hresp),
         .slv_hrdata(slv_hrdata),
-//         .slv_hsplit(slv_hsplit), //changed by agy
         .slv_err(slv_err),
         
-        // Unused wrapper inputs mapped to 1
+        // Legacy generator handshake inputs (no effect)
         .mst_running(1'b1),
         .prior_in(1'b1),
         .slv_running(slv_running),
@@ -108,12 +117,8 @@ module nm32_ifft_ahb_wrapper #(
     wire clk = hclk;
     wire rst = ~hresetn; // Active-high reset for IFFT module
     
-    reg  start;
-    wire ext_we;
-    wire [8:0] ext_addr;
-    wire [31:0] ext_din;
-    wire [31:0] ext_dout;
-    
+    reg  start;         // 1-cycle start pulse to the engine
+
     wire tw_we;
     wire [7:0] tw_ext_addr;
     wire [31:0] tw_ext_din;
@@ -121,7 +126,8 @@ module nm32_ifft_ahb_wrapper #(
     
     wire done;
     
-    // Busy signal for arbiter
+    // busy: set by start, cleared by done. Steers the shared ping-pong
+    // accelerator port mux in NM32_top.sv.
     reg busy;
     always @(posedge clk or posedge rst) begin
         if (rst) busy <= 0;
@@ -152,10 +158,7 @@ module nm32_ifft_ahb_wrapper #(
     // -----------------------------------------------------------------------
     // Address Decoding & Glue Logic (Synchronous)
     // -----------------------------------------------------------------------
-    // Memory Map relative to BASE_ADDR:
-    // 0x000 - 0x7FC : 512x32 Data RAM
-    // 0x800 - 0xBFC : 256x32 Twiddle RAM
-    // 0xC00         : Control Register (Bit 0 = Start, Bit 1 = Done)
+    // Register map: see file header.
     
     wire [11:0] local_addr = s_wrap_addr[11:0];
     
@@ -166,7 +169,8 @@ module nm32_ifft_ahb_wrapper #(
     assign tw_ext_din  = s_wrap_wdata;
     assign tw_we       = (is_twid_ram && s_wrap_take);
     
-    // Synchronous reads (Zero Wait States)
+    // Twiddle RAM reads have 1 cycle of latency -> 1 wait state.
+    // CTRL reads and all writes are zero-wait.
     reg read_stall;
     always @(posedge hclk or negedge hresetn) begin
         if (!hresetn) begin
@@ -180,8 +184,7 @@ module nm32_ifft_ahb_wrapper #(
         end
     end
     
-    // Accept writes immediately (Zero wait state for writes).
-    assign s_wrap_take_ok = (is_twid_ram) ? 1'b1 : 1'b1; 
+    assign s_wrap_take_ok = 1'b1;
     assign s_wrap_ask_ok  = (is_twid_ram) ? read_stall : 1'b1;
 
     // START Pulse Generation & DONE Latching

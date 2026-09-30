@@ -1,96 +1,30 @@
-// *******************************************************************
-// AHB system generator - Package (converted from VHDL)
-// Original Author: Federico Aglietti, federico.aglietti@opencores.org
-// *******************************************************************
+//==========================================================================
+// Project : NM32 "KAVACH" SoC (Noise Margin)
+// File    : ahb_package.vh
+// Purpose : Shared AMBA AHB encodings used by the interconnect and the
+//           accelerator slave-wait wrappers.
+// Notes   : Derived from the OpenCores "AHB system generator" package
+//           (Federico Aglietti), trimmed to the macros this SoC uses.
+//           Macros are global once included - avoid reusing these names.
+//==========================================================================
 
 `ifndef AHB_PACKAGE_VH
 `define AHB_PACKAGE_VH
 
-// ---------------------------------------------------------------------------
-// Dump type constants
-// ---------------------------------------------------------------------------
-`define DUMP_NO   0
-`define DUMP_END  1
-`define DUMP_ALL  2
+// ---- HBURST ----
+`define INCR     3'b001     // Incrementing burst of unspecified length
 
-// ---------------------------------------------------------------------------
-// hburst values
-// ---------------------------------------------------------------------------
-`define SINGLE   3'b000
-`define INCR     3'b001
-`define WRAP4    3'b010
-`define INCR4    3'b011
-`define WRAP8    3'b100
-`define INCR8    3'b101
-`define WRAP16   3'b110
-`define INCR16   3'b111
+// ---- HSIZE ----
+`define BITS32   3'b010     // 32-bit word transfer
 
-// ---------------------------------------------------------------------------
-// hsize values
-// ---------------------------------------------------------------------------
-`define BITS8    3'b000
-`define BITS16   3'b001
-`define BITS32   3'b010
-`define BITS64   3'b011
-`define BITS128  3'b100
-`define BITS256  3'b101
-`define BITS512  3'b110
-`define BITS1024 3'b111
+// ---- HTRANS ----
+`define IDLE     2'b00      // No transfer
+`define BUSY     2'b01      // Master inserting a wait inside a burst
+`define NONSEQ   2'b10      // First (or single) beat of a transfer
+`define SEQ      2'b11      // Subsequent beat of a burst
 
-// ---------------------------------------------------------------------------
-// htrans values
-// ---------------------------------------------------------------------------
-`define IDLE    2'b00
-`define BUSY    2'b01
-`define NONSEQ  2'b10
-`define SEQ     2'b11
-
-// ---------------------------------------------------------------------------
-// hresp values
-// ---------------------------------------------------------------------------
+// ---- HRESP ----
 `define OK_RESP     2'b00
 `define ERROR_RESP  2'b01
-`define RETRY_RESP  2'b10
-`define SPLIT_RESP  2'b11
-
-// ---------------------------------------------------------------------------
-// Priority values
-// ---------------------------------------------------------------------------
-`define MASTER_PRI  1'b1
-`define SLAVE_PRI   1'b0
-
-// ---------------------------------------------------------------------------
-// Split/retry
-// ---------------------------------------------------------------------------
-`define RETRY_MODE  1'b0
-`define SPLIT_MODE  1'b1
-
-// ---------------------------------------------------------------------------
-// Lock
-// ---------------------------------------------------------------------------
-`define NONLOCKED  1'b0
-`define LOCKED     1'b1
-
-// ---------------------------------------------------------------------------
-// Burst capability
-// ---------------------------------------------------------------------------
-`define BURST_SUPPORT    1
-`define NO_BURST_SUPPORT 0
-
-// ---------------------------------------------------------------------------
-// hprot defaults
-// ---------------------------------------------------------------------------
-`define HPROT_POSTED    4'b1111
-`define HPROT_NONPOSTED 4'b0000
-
-// ---------------------------------------------------------------------------
-// DMA configuration register addresses
-// ---------------------------------------------------------------------------
-`define DMA_EXTADD_ADDR  4'h0
-`define DMA_INTADD_ADDR  4'h1
-`define DMA_INTMOD_ADDR  4'h2
-`define DMA_TYPE_ADDR    4'h3
-`define DMA_COUNT_ADDR   4'h4
-`define DMA_GO_ADDR      4'h5
 
 `endif // AHB_PACKAGE_VH

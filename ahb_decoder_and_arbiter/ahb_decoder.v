@@ -1,6 +1,17 @@
-// *******************************************************************
-// AHB system generator - Simplified AHB Decoder & Slave Multiplexer
-// *******************************************************************
+//==========================================================================
+// Project : NM32 "KAVACH" SoC (Noise Margin)
+// Module  : ahb_decoder
+// Purpose : AHB address decoder, slave-response mux and default slave.
+//           - Address phase: compares HADDR against each slave's
+//             [ADDR_LOW, ADDR_HIGH] window and drives one-hot slv_hsel.
+//           - Data phase: r_slv_hsel (registered select) routes the
+//             selected slave's HREADY/HRESP/HRDATA back to the masters.
+//           - Unmapped addresses get the standard 2-cycle ERROR response.
+// Clocks  : hclk (system clk)
+// Notes   : The global `hready` fed back to every slave and to the
+//           arbiter comes from here; a slave holding HREADYOUT low stalls
+//           the whole bus.
+//==========================================================================
 `timescale 1ns/1ps
 `include "ahb_package.vh"
 
@@ -62,8 +73,8 @@ module ahb_decoder #(
         slv_hready_mux = def_slave_hready;
         slv_hrdata_mux = 32'h0;
         
-        // FIX: Only let the default slave drive ERROR_RESP if no valid slave is selected
-        if (|r_slv_hsel) begin //r_slv_hsel or slv_hsel?
+        // The default slave may only drive ERROR when no real slave owns the data phase
+        if (|r_slv_hsel) begin
             slv_hresp_mux = `OK_RESP; 
         end else begin
             slv_hresp_mux = (def_slave_err_phase || def_slave_err_second) ? `ERROR_RESP : `OK_RESP;
@@ -79,9 +90,7 @@ module ahb_decoder #(
         end
     end
 
-    //if any slave is selected, readiness of current slave = slv_hready_mux
-    //else, readiness of slave = def_slave_hready
-// FIX: Prevents the default slave from deadlocking the bus during a valid data phase
+    // Global HREADY: the data-phase slave's ready, else the default slave's
     assign hready = (|r_slv_hsel) ? slv_hready_mux : 
                           (def_slave_err_phase) ? def_slave_hready : 1'b1;
     // -----------------------------------------------------------------------
@@ -132,9 +141,6 @@ module ahb_decoder #(
     //   Cycle N+3: idle, normal operation resumes
     // -----------------------------------------------------------------------
 
-// -----------------------------------------------------------------------
-    // Default Slave - FIXED ERROR STATE HANDSHAKE
-    // -----------------------------------------------------------------------
     always @(posedge hclk or negedge hresetn) begin
         if (!hresetn) begin
             def_slave_hready    <= 1'b1;

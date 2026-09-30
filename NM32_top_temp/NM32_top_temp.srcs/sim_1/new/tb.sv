@@ -1,593 +1,319 @@
-    // `timescale 1ns / 1ps
+//==========================================================================
+// Project : NM32 "KAVACH" SoC (Noise Margin)
+// Module  : tb
+// Purpose : Full-chip testbench for nm32_top (Ibex CPU).
+//           - I2S: TX clocks are looped back to RX, and a serializer plays
+//             firmware/audio_in.txt into the RX data pin (the "microphone").
+//           - SPI: behavioural flash model (Flash/flash.v) on CS0 supplies the
+//             firmware image the bootloader copies into SRAM.
+//           - Checks (each ends the run with a message):
+//               [TRAP]     firmware trap_dump (start.S) wrote mcause/mepc/mtval
+//               [WATCHDOG] no instruction fetch completed for 20 ms
+//               [XCHECK]   X on Ibex instr/data read data
+//           - Outputs (written to the simulator run directory, for XSim:
+//             NM32_top_temp/NM32_top_temp.sim/sim_1/behav/xsim/):
+//               audio_out.txt  every word written to the I2S TX FIFO
+//               fft_out.txt / ifft_out.txt  accelerator bank dump on a
+//                             firmware handshake (see section 7)
+// Defines : NM32_FAST_BOOT - backdoor-load firmware_flash.hex into SRAM and
+//                            NOP the bootloader call at ROM 0x88 (saves ~13 ms)
+//           NM32_TRACE     - verbose debug tracing (tb + RTL)
+//==========================================================================
+`timescale 1ns / 1ps
 
-    // module tb;
+module tb;
+    reg clk;
+    reg rstn;
 
-    //     // ---------------------------------------------------------
-    //     // 1. Core Signals
-    //     // ---------------------------------------------------------
-    //     reg clk;
-    //     reg rstn;
-    //     // reg pclk;
+    // ---------------------------------------------------------------------
+    // 1. Chip-level wires
+    // ---------------------------------------------------------------------
+    wire rx_ws, rx_sck, sdi;       // I2S RX (into the SoC)
+    wire tx_ws, tx_sck, sdo;       // I2S TX (out of the SoC)
 
-    //     // ---------------------------------------------------------
-    //     // 2. Loopback Wires
-    //     // ---------------------------------------------------------
-    //     wire [1-1:0] rx_ws;
-    //     wire [1-1:0] rx_sck;
-    //     wire [1-1:0] sdi;
-        
-    //     wire [1-1:0] tx_ws;
-    //     wire [1-1:0] tx_sck;
-    //     wire [1-1:0] sdo;
+    wire       spi_clk;
+    wire [3:0] spi_csn;
+    wire [1:0] spi_mode;
+    wire [3:0] spi_sdo;
+    wire [3:0] spi_sdi;
 
-    //     assign rx_ws  = tx_ws;
-    //     assign rx_sck = tx_sck;
+    wire [7:0] gpio_in = 8'h00;
+    wire [7:0] gpio_out;
+    wire [7:0] gpio_oe;
 
-    //     reg [31:0] audio_in_mem [0:2047];
-    //     integer sample_idx = 0;
-    //     integer bit_idx = 31;
-    //     reg sdi_reg = 0;
-    //     assign sdi = sdi_reg;
+    // I2S TX word-select / bit clock are reused for the RX side.
+    assign rx_ws  = tx_ws;
+    assign rx_sck = tx_sck;
 
-    //     initial begin
-    //         $readmemh("./../../../../../firmware/audio_in.txt", audio_in_mem);
-    //     end
+    // ---------------------------------------------------------------------
+    // 2. I2S microphone model
+    //    On each falling edge of WS (start of the left slot) load the next
+    //    32-bit sample, then shift it out MSB-first after the standard
+    //    1-bit I2S delay. The right slot is sent as zeros. The last sample
+    //    repeats once the 2048-entry input file is exhausted.
+    // ---------------------------------------------------------------------
+    reg  [31:0] audio_in_mem [0:2047];
+    integer     sample_idx  = 0;
+    reg         sdi_reg     = 1'b0;
+    reg         last_ws_reg = 1'b1;
+    reg  [31:0] shift_reg   = 32'h0;
 
-    //     // Robust Synchronous I2S Serializer
-    //     reg last_ws_reg = 1'b1;
-    //     reg [31:0] shift_reg = 32'h0;
-        
-    //     always @(negedge rx_sck) begin
-    //         last_ws_reg <= rx_ws;
-            
-    //         if (last_ws_reg == 1'b1 && rx_ws == 1'b0) begin
-    //             // Detect falling edge of ws -> load new sample
-    //             shift_reg <= audio_in_mem[sample_idx];
-    //             $display("Time=%0t: [SERIALIZER] Loaded sample_idx=%d, val=0x%08h", $time, sample_idx, audio_in_mem[sample_idx]);
-    //             if (sample_idx < 2047) begin
-    //                 sample_idx <= sample_idx + 1;
-    //             end
-    //             sdi_reg <= 1'b0; // 1-cycle standard delay
-    //         end else if (rx_ws == 1'b0) begin
-    //             // Shift out MSB
-    //             sdi_reg <= shift_reg[31];
-    //             shift_reg <= {shift_reg[30:0], 1'b0};
-    //         end else begin
-    //             sdi_reg <= 1'b0;
-    //         end
-    //     end
+    assign sdi = sdi_reg;
 
-    //     // ---------------------------------------------------------
-    //     // 3. Device Under Test (DUT) Instantiation
-    //     // ---------------------------------------------------------
-    //     nm32_top dut (
-    //         .clk(clk),
-    //         // .pclk(pclk), // Assuming peripheral clock is the same as system clock
-    //         .rstn(rstn),
-            
-    //         // I2S RX Ports (Listening)
-    //         .rx_ws(rx_ws),
-    //         .rx_sck(rx_sck),
-    //         .sdi(sdi),
-            
-    //         // I2S TX Ports (Driving)
-    //         .tx_ws(tx_ws),
-    //         .tx_sck(tx_sck),
-    //         .sdo(sdo)
-    //     );
+    initial $readmemh("./../../../../../firmware/audio_in.txt", audio_in_mem);
 
-    //     // ---------------------------------------------------------
-    //     // 4. Clock Generation (200MHz)HCLK + 100MHz PCLK
-    //     // ---------------------------------------------------------
-    //     initial begin
-    //         clk = 0;
-    //         // pclk = 0;
-    //         // The #5 delay prevents the SIGSEGV crash! (10ns period = 100MHz)
-    //         forever #2.5 clk = ~clk; 
-    //         // forever #5 pclk = ~pclk;
-    //     end
+    always @(negedge rx_sck) begin
+        last_ws_reg <= rx_ws;
 
-    //     // initial begin
-    //     //     pclk = 0;
-    //     //     forever #5 pclk = ~pclk;
-    //     // end
-
-    //     // ---------------------------------------------------------
-    //     // 5. Reset Sequence and Safety Timeout
-    //     // ---------------------------------------------------------
-    //     initial begin
-    //         // Hold reset low to clear all registers
-    //         rstn = 0;
-            
-    //         // Wait 100ns, then release reset
-    //      #100;
-    //         rstn = 1;
-
-    //         // --- SAFETY TIMEOUT ---
-    //         // Because your C code ends in an infinite while(1) loop, 
-    //         // the simulation will run forever if you click "Run All".
-    //         // This command forces Vivado to stop after 1 millisecond.
-    //         // (1 ms is plenty of time for a 100MHz CPU to run the test)
-    //         // --- SAFETY TIMEOUT ---
-    //         #48000000; // 48.0ms (4,800,000 cycles at 100MHz)
-            
-    //         $display("--------------------------------------------------");
-    //         $display(" Simulation reached timeout and finished safely.");
-    //         $display(" Check your waveforms!");
-    //         $display("--------------------------------------------------");
-    //         $finish;
-    //     end
-
-
-    //     // ---------------------------------------------------------
-    //     // 6. CPU Instruction & Memory Tracer
-    //     // ---------------------------------------------------------
-    //     // ---------------------------------------------------------
-    //     // 6. CPU Instruction & Memory Tracer
-    //     // ---------------------------------------------------------
-    //     always @(posedge clk) begin
-    //         if (dut.cpu_mem_valid && dut.cpu_mem_ready) begin
-    //             if (dut.cpu_mem_wstrb != 4'b0000) begin
-    //                 if (dut.cpu_mem_addr[31:28] == 4'h2 || dut.cpu_mem_addr[31:28] == 4'h3 || dut.cpu_mem_addr[31:28] == 4'h4 || dut.cpu_mem_addr[31:28] == 4'h5 || dut.cpu_mem_addr[31:28] == 4'h6) begin
-    //                     if (dut.cpu_mem_addr == 32'h20000000 && dut.cpu_mem_wstrb == 4'b0000) $display("Time=%0t: [CPU READ] I2S_RX_DATA = 0x%08h", $time, dut.cpu_mem_rdata);
-    //                     $display("Time=%0t: [CPU WRITE] Addr=0x%08h, Data=0x%08h, Wstrb=%b", $time, dut.cpu_mem_addr, dut.cpu_mem_wdata, dut.cpu_mem_wstrb);
-    //                 end
-    //             end else begin
-    //                 if (dut.cpu_mem_addr[31:28] == 4'h2 || dut.cpu_mem_addr[31:28] == 4'h3 || dut.cpu_mem_addr[31:28] == 4'h4 || dut.cpu_mem_addr[31:28] == 4'h5 || dut.cpu_mem_addr[31:28] == 4'h6) begin
-    //                     if (dut.cpu_mem_addr == 32'h20000000 && dut.cpu_mem_wstrb == 4'b0000) $display("Time=%0t: [CPU READ] I2S_RX_DATA = 0x%08h", $time, dut.cpu_mem_rdata);
-    //                     $display("Time=%0t: [CPU READ ] Addr=0x%08h, Data=0x%08h", $time, dut.cpu_mem_addr, dut.cpu_mem_rdata);
-    //                 end
-    //             end
-    //         end
-    //     end
-    //     // I2S Tracer
-    //     always @(posedge clk) begin
-    //         if (dut.i2s_tx_apb.instance_to_wrap.fifo_wr) begin
-    //             $display("Time=%0t: [I2S TX FIFO WRITE] Data=0x%08h", $time, dut.i2s_tx_apb.instance_to_wrap.fifo_wdata);
-    //         end
-    //         if (dut.i2s_tx_apb.instance_to_wrap.fifo_rd_int) begin
-    //             $display("Time=%0t: [I2S TX FIFO READ] Data=0x%08h", $time, dut.i2s_tx_apb.instance_to_wrap.fifo_rdata);
-    //         end
-    //         if (dut.i2s_apb.instance_to_wrap.fifo_wr) begin
-    //             $display("Time=%0t: [I2S RX FIFO WRITE] Data=0x%08h", $time, dut.i2s_apb.instance_to_wrap.fifo_wdata);
-    //         end
-    //     end
-
-    //     // Track WS and SCK toggles to verify clock generation
-    //     always @(edge rx_sck) begin
-    //         $display("Time=%0t: [I2S SCK EDGE] sck=%b, ws=%b, sdo=%b, sdi=%b", $time, rx_sck, rx_ws, sdo, sdi);
-    //     end
-    //     always @(edge rx_ws) begin
-    //         $display("Time=%0t: [I2S WS EDGE] sck=%b, ws=%b, sdo=%b, sdi=%b", $time, rx_sck, rx_ws, sdo, sdi);
-    //     end
-
-    //     // Monitor APB bridge transactions
-    //     // always @(posedge clk) begin
-    //     //     if (dut.bridge.p_selx || dut.bridge.p_enable || dut.bridge.current_state != 0) begin
-    //     //         $display("Time=%0t: [BRIDGE] state=%d sel=%b en=%b addr=0x%08h wdata=0x%08h rdata=0x%08h write=%b h_ready_out=%b h_rdata=0x%08h rx_fifo_rdata=0x%08h rx_empty=%b rx_fifo_rd=%b",
-    //     //             $time,
-    //     //             dut.bridge.current_state,
-    //     //             dut.bridge.p_selx,
-    //     //             dut.bridge.p_enable,
-    //     //             dut.bridge.p_addr,
-    //     //             dut.bridge.p_wdata,
-    //     //             dut.bridge.p_rdata,
-    //     //             dut.bridge.p_write,
-    //     //             dut.bridge.h_ready_out,
-    //     //             dut.bridge.h_rdata,
-    //     //             dut.i2s_apb.instance_to_wrap.fifo_rdata,
-    //     //             dut.i2s_apb.instance_to_wrap.fifo_empty,
-    //     //             dut.i2s_apb.instance_to_wrap.fifo_rd
-    //     //         );
-    //     //     end
-    //     // end
-
-    //     // ---------------------------------------------------------
-    //     // 6b. Cycle-by-Cycle CPU-AHB Debug Tracer
-    //     // ---------------------------------------------------------
-    //     integer cycle_count = 0;
-    //     always @(posedge clk) begin
-    //         if (dut.cpu_mem_addr[31:16] == 16'h2000 || dut.cpu_mem_addr[31:16] == 16'h2001) begin
-    //             $display("Time=%0t | rstn=%b | wrapper_state=%b valid=%b ready=%b addr=0x%h | htrans=%b haddr=0x%h hready_out=%b | rom_sel=%b rom_ready=%b rom_laddr=0x%h rom_rdata=0x%h",
-    //                 $time, rstn,
-    //                 dut.wrapper.state, dut.cpu_mem_valid, dut.cpu_mem_ready, dut.cpu_mem_addr,
-    //                 dut.cpu_htrans, dut.cpu_haddr, dut.cpu_hready,
-    //                 dut.boot_rom_HSEL, dut.boot_rom.HREADY, dut.boot_rom.latched_addr, dut.boot_rom.HRDATA);
-    //             cycle_count = cycle_count + 1;
-    //         end
-    //     end
-
-    //     // ---------------------------------------------------------
-    //     // 7. Auto-Verification and Frame Dumping Logic
-    //     // ---------------------------------------------------------
-    //     integer outfile_fft;
-    //     integer outfile_ifft;
-    //     integer f_idx;
-    //     initial begin
-    //         outfile_fft = $fopen("./fft_out.txt", "w");
-    //         outfile_ifft = $fopen("./ifft_out.txt", "w");
-    //     end
-
-    //     always @(posedge clk) begin
-    //         // The firmware writes to SRAM_BASE + 0x0F00 for handshake
-    //         // Since SRAM_BASE is the main CPU memory, we check the AHB signals.
-    //         if (dut.sram_HWRITE && dut.sram_HREADY && dut.sram_HADDR == 32'h30000F00) begin
-    //             if (dut.sram_HWDATA == 32'h11111111 || 
-    //                 dut.sram_HWDATA == 32'h22222222 || 
-    //                 dut.sram_HWDATA == 32'h33333333 || 
-    //                 dut.sram_HWDATA == 32'h55555555) begin
-                    
-    //                 $display("Time=%0t: [TESTBENCH] Handshake 0x%08h detected. Dumping current FFT frame to fft_out.txt and IFFT frame to ifft_out.txt...", $time, dut.sram_HWDATA);
-                    
-    //                 for (f_idx = 0; f_idx < 512; f_idx = f_idx + 1) begin
-    //                     // Dump FFT/IFFT outputs from the hardware bank (which just finished processing)
-    //                     // The firmware just processed hardware_bank = frame % 2. Wait, the firmware just toggled it.
-    //                     // We can dump both banks or just use the current accel_bank_sel (which is still set to the hardware_bank for the current frame)
-    //                     // Actually, at the end of the frame, the output is in hw_ram.
-    //                     // Let's just dump hw_ram, which is selected by accel_bank_sel
-    //                     if (dut.scratchpad_sram.accel_bank_sel == 0) begin
-    //                         $fdisplay(outfile_fft, "%08X", dut.scratchpad_sram.bank0[f_idx]);
-    //                         $fdisplay(outfile_ifft, "%08X", dut.scratchpad_sram.bank0[f_idx]);
-    //                     end else begin
-    //                         $fdisplay(outfile_fft, "%08X", dut.scratchpad_sram.bank1[f_idx]);
-    //                         $fdisplay(outfile_ifft, "%08X", dut.scratchpad_sram.bank1[f_idx]);
-    //                     end
-    //                 end
-                    
-    //                 if (dut.sram_HWDATA == 32'h55555555) begin
-    //                     $display("Time=%0t: [TESTBENCH] Frame 4 completed. Verification simulation successful!", $time);
-    //                     $fclose(outfile_fft);
-    //                     $fclose(outfile_ifft);
-    //                     $finish;
-    //                 end
-    //             end
-    //         end
-    //     end
-
-    // endmodule
-
-
-
-    `timescale 1ns / 1ps
-
-    module tb;
-
-        // ---------------------------------------------------------
-        // 1. Core Signals
-        // ---------------------------------------------------------
-        reg clk;
-        reg rstn;
-
-        // ---------------------------------------------------------
-        // 2. Loopback Wires
-        // ---------------------------------------------------------
-        wire [1-1:0] rx_ws;
-        wire [1-1:0] rx_sck;
-        wire [1-1:0] sdi;
-        
-        wire [1-1:0] tx_ws;
-        wire [1-1:0] tx_sck;
-        wire [1-1:0] sdo;
-
-        wire spi_clk;
-        wire [3:0] spi_csn;
-        wire [1:0] spi_mode;
-        wire [3:0] spi_sdo;
-        wire [3:0] spi_sdi;
-
-        assign rx_ws  = tx_ws;
-        assign rx_sck = tx_sck;
-
-        reg [31:0] audio_in_mem [0:2047];
-        integer sample_idx = 0;
-        integer bit_idx = 31;
-        reg sdi_reg = 0;
-        assign sdi = sdi_reg;
-
-
-        // spi_mode is driven by the DUT output now
-
-        initial begin
-            $readmemh("./../../../../../firmware/audio_in.txt", audio_in_mem);
-            
-            // FAST BOOT BYPASS: Load firmware directly into SRAM
-            $readmemh("./../../../../../firmware/firmware_flash.hex", dut.sram0.mem);
-            
-            // Overwrite the 'jal hardware_spi_bootloader' instruction at Boot ROM address 0x08
-            // with a NOP (0x00000013) to skip the slow SPI read loop but keep SP and BSS setup.
-            dut.boot_rom.memory[2] = 32'h00000013;
+        if (last_ws_reg == 1'b1 && rx_ws == 1'b0) begin
+            shift_reg <= audio_in_mem[sample_idx];
+`ifdef NM32_TRACE
+            $display("Time=%0t: [SERIALIZER] Loaded sample_idx=%0d, val=0x%08h", $time, sample_idx, audio_in_mem[sample_idx]);
+`endif
+            if (sample_idx < 2047) sample_idx <= sample_idx + 1;
+            sdi_reg <= 1'b0;                          // 1-bit I2S delay
+        end else if (rx_ws == 1'b0) begin
+            sdi_reg   <= shift_reg[31];               // left slot: data
+            shift_reg <= {shift_reg[30:0], 1'b0};
+        end else begin
+            sdi_reg <= 1'b0;                          // right slot: silence
         end
+    end
 
-        // Robust Synchronous I2S Serializer
-        reg last_ws_reg = 1'b1;
-        reg [31:0] shift_reg = 32'h0;
-        
-        always @(negedge rx_sck) begin
-            last_ws_reg <= rx_ws;
-            
-            if (last_ws_reg == 1'b1 && rx_ws == 1'b0) begin
-                // Detect falling edge of ws -> load new sample
-                shift_reg <= audio_in_mem[sample_idx];
-                $display("Time=%0t: [SERIALIZER] Loaded sample_idx=%d, val=0x%08h", $time, sample_idx, audio_in_mem[sample_idx]);
-                if (sample_idx < 2047) begin
-                    sample_idx <= sample_idx + 1;
-                end
-                sdi_reg <= 1'b0; // 1-cycle standard delay
-            end else if (rx_ws == 1'b0) begin
-                // Shift out MSB
-                sdi_reg <= shift_reg[31];
-                shift_reg <= {shift_reg[30:0], 1'b0};
-            end else begin
-                sdi_reg <= 1'b0;
+    // ---------------------------------------------------------------------
+    // 3. DUT + external SPI flash
+    // ---------------------------------------------------------------------
+    nm32_top dut (
+        .clk      (clk),
+        .rstn     (rstn),
+        .rx_ws    (rx_ws),
+        .rx_sck   (rx_sck),
+        .sdi      (sdi),
+        .tx_ws    (tx_ws),
+        .tx_sck   (tx_sck),
+        .sdo      (sdo),
+        .spi_clk  (spi_clk),
+        .spi_csn  (spi_csn),
+        .spi_mode (spi_mode),
+        .spi_sdo  (spi_sdo),
+        .spi_sdi  (spi_sdi),
+        .gpio_in  (gpio_in),
+        .gpio_out (gpio_out),
+        .gpio_oe  (gpio_oe)
+    );
+
+    flash flash_inst (
+        .sck (spi_clk),
+        .csn (spi_csn[0]),     // flash on chip-select 0
+        .sdo (spi_sdo[0]),     // SoC MOSI -> flash
+        .sdi (spi_sdi[0])      // flash -> SoC MISO
+    );
+
+`ifdef NM32_FAST_BOOT
+    // Runs after the memories' own time-0 initial blocks.
+    initial begin
+        #1;
+        $readmemh("./../../../../../firmware/firmware_flash.hex", dut.sram0.mem);
+        dut.boot_rom.memory[32'h88 >> 2] = 32'h00000013;   // NOP the bootloader call
+        $display("Time=%0t: [TESTBENCH] FAST BOOT: firmware backdoor-loaded into SRAM", $time);
+    end
+`endif
+
+    // ---------------------------------------------------------------------
+    // 4. Clock (100 MHz), reset and safety timeout
+    // ---------------------------------------------------------------------
+    initial begin
+        clk = 0;
+        forever #5 clk = ~clk;
+    end
+
+    initial begin
+        rstn = 0;
+        #100;
+        rstn = 1;
+
+        #800000000;            // 800 ms
+        $display("Time=%0t: [TESTBENCH] Timeout reached, stopping.", $time);
+        $finish;
+    end
+
+    // ---------------------------------------------------------------------
+    // 5. SRAM mailbox monitor (AHB data phase)
+    //    The address phase is registered; HWDATA is sampled when the data
+    //    phase completes (HREADY high).
+    // ---------------------------------------------------------------------
+    reg        mb_pend;
+    reg [31:0] mb_addr;
+    reg        mb_valid;     // pulses for one clk with a completed SRAM write
+    reg [31:0] mb_wr_addr;
+    reg [31:0] mb_wr_data;
+
+    always @(posedge clk) begin
+        mb_valid <= 1'b0;
+        if (!rstn) begin
+            mb_pend <= 1'b0;
+        end else if (dut.sram_HREADY) begin
+            if (mb_pend) begin
+                mb_valid   <= 1'b1;
+                mb_wr_addr <= mb_addr;
+                mb_wr_data <= dut.sram_HWDATA;
             end
+            mb_pend <= dut.sram_HSEL && dut.sram_HWRITE && dut.sram_HTRANS[1];
+            mb_addr <= dut.sram_HADDR;
         end
+    end
 
-        // ---------------------------------------------------------
-        // 3. Device Under Test (DUT) Instantiation
-        // ---------------------------------------------------------
-        nm32_top dut (
-            .clk(clk),
-            .rstn(rstn),
-            
-            // I2S RX Ports (Listening)
-            .rx_ws(rx_ws),
-            .rx_sck(rx_sck),
-            .sdi(sdi),
-            
-            // I2S TX Ports (Driving)
-            .tx_ws(tx_ws),
-            .tx_sck(tx_sck),
-            .sdo(sdo),
-
-            .spi_clk(spi_clk),
-            .spi_csn(spi_csn),
-            .spi_mode(spi_mode),
-            .spi_sdo(spi_sdo),
-            .spi_sdi(spi_sdi)
-        );
-
-        flash flash_inst (
-            .sck(spi_clk),
-            .csn(spi_csn[0]), // Assuming using the first chip select for flash
-            .sdi(spi_sdi[0]), // SPI Master Out, Slave In
-            .sdo(spi_sdo[0])  // SPI Master In, Slave Out
-        );
-
-        // ---------------------------------------------------------
-        // 4. Clock Generation (100MHz)
-        // ---------------------------------------------------------
-        initial begin
-            clk = 0;
-            // The #5 delay prevents the SIGSEGV crash! (10ns period = 100MHz)
-            forever #5 clk = ~clk; 
-        end
-
-        // ---------------------------------------------------------
-        // 5. Reset Sequence and Safety Timeout
-        // ---------------------------------------------------------
-        initial begin
-            // Hold reset low to clear all registers
-            rstn = 0;
-            
-            // Wait 100ns, then release reset
-            #100;
-            rstn = 1;
-
-            // --- SAFETY TIMEOUT ---
-            // Because your C code ends in an infinite while(1) loop,
-            // the simulation will run forever if you click "Run All".
-            // This command forces Vivado to stop after a timeout.
-            // --- SAFETY TIMEOUT ---
-            #800000000; // 800.0ms (80,000,000 cycles at 100MHz) -- covers 4 audio frames (audio_in.txt = 2048 samples / 256-pt frame)
-            
-            $display("--------------------------------------------------");
-            $display(" Simulation reached timeout and finished safely.");
-            $display(" Check your waveforms!");
-            $display("--------------------------------------------------");
+    // ---------------------------------------------------------------------
+    // 6. Health checks and progress log
+    // ---------------------------------------------------------------------
+    // Trap dump from start.S: 0x3000_7F20 mcause, 7F24 mepc, 7F28 mtval.
+    reg [31:0] trap_mcause, trap_mepc;
+    always @(posedge clk) begin
+        if (mb_valid && mb_wr_addr == 32'h30007F20) trap_mcause <= mb_wr_data;
+        if (mb_valid && mb_wr_addr == 32'h30007F24) trap_mepc   <= mb_wr_data;
+        if (mb_valid && mb_wr_addr == 32'h30007F28) begin
+            $display("Time=%0t: [TRAP] mcause=0x%08h mepc=0x%08h mtval=0x%08h", $time, trap_mcause, trap_mepc, mb_wr_data);
             $finish;
         end
+    end
 
-        // ---------------------------------------------------------
-        // 5b. X-propagation watchdog
-        // ---------------------------------------------------------
-        // Stops the sim the instant the CPU fetch/data interface sees
-        // unknown (X) data, instead of running to the 800ms timeout
-        // while Ibex's internal assertions re-fire every cycle.
-        reg data_phase_is_write;
-        always @(posedge clk) begin
-            if (!rstn) data_phase_is_write <= 1'b0;
-            else if (dut.slv_hready_in) data_phase_is_write <= dut.arbiter.sel_hwrite;
+    // Watchdog: some instruction fetch completes at least every 20 ms
+    // (generous: wfi legitimately stops fetching while waiting for an IRQ).
+    integer last_insn_time = 0;
+    always @(posedge clk) begin
+        if (dut.instr_rvalid)
+            last_insn_time = $time;
+        if ($time - last_insn_time > 20000000) begin      // ns
+            $display("Time=%0t: [WATCHDOG] CPU stuck! No instruction fetch for 20ms! Last at %0t, fetch addr 0x%08h.", $time, last_insn_time, dut.instr_addr);
+            $finish;
         end
+    end
 
-        always @(posedge clk) begin
-            if (rstn) begin
-                if (dut.instr_rvalid && $isunknown(dut.instr_rdata)) begin
-                    $display("Time=%0t: [WATCHDOG] X detected on instr_rdata while instr_rvalid=1 -- CPU fetch starved/corrupted at Addr=0x%h. PC=0x%h. Stopping sim.", $time, dut.instr_addr, dut.instr_addr);
-                    $finish;
-                end
-                if (dut.data_rvalid && !data_phase_is_write && $isunknown(dut.data_rdata)) begin
-                    $display("Time=%0t: [WATCHDOG] X detected on data_rdata while data_rvalid=1 -- CPU load starved/corrupted at Addr=0x%h. PC=0x%h. Stopping sim.", $time, dut.data_addr, dut.instr_addr);
-                    $finish;
-                end
+    // X check on the read data Ibex consumes.
+    reg data_is_write;       // write flag of the data-port access in flight
+    always @(posedge clk) begin
+        if (dut.data_gnt) data_is_write <= dut.data_we;
+        if (rstn) begin
+            if (dut.instr_rvalid && $isunknown(dut.instr_rdata)) begin
+                $display("Time=%0t: [XCHECK] X on instr_rdata, fetch addr 0x%08h", $time, dut.instr_addr);
+                $finish;
             end
-        end
-
-
-        // ---------------------------------------------------------
-        // 6. CPU Instruction & Memory Tracer (Disabled for Speed)
-        // ---------------------------------------------------------
-        /*
-        always @(posedge clk) begin
-            if (dut.cpu_mem_valid && dut.cpu_mem_ready) begin
-                if (dut.cpu_mem_wstrb != 4'b0000) begin
-                    if (dut.cpu_mem_addr[31:28] == 4'h2 || dut.cpu_mem_addr[31:28] == 4'h3 || dut.cpu_mem_addr[31:28] == 4'h4 || dut.cpu_mem_addr[31:28] == 4'h5 || dut.cpu_mem_addr[31:28] == 4'h6) begin
-                        if (dut.cpu_mem_addr == 32'h20000000 && dut.cpu_mem_wstrb == 4'b0000) $display("Time=%0t: [CPU READ] I2S_RX_DATA = 0x%08h", $time, dut.cpu_mem_rdata);
-                        $display("Time=%0t: [CPU WRITE] Addr=0x%08h, Data=0x%08h, Wstrb=%b", $time, dut.cpu_mem_addr, dut.cpu_mem_wdata, dut.cpu_mem_wstrb);
-                    end
-                end else begin
-                    if (dut.cpu_mem_addr[31:28] == 4'h2 || dut.cpu_mem_addr[31:28] == 4'h3 || dut.cpu_mem_addr[31:28] == 4'h4 || dut.cpu_mem_addr[31:28] == 4'h5 || dut.cpu_mem_addr[31:28] == 4'h6) begin
-                        if (dut.cpu_mem_addr == 32'h20000000 && dut.cpu_mem_wstrb == 4'b0000) $display("Time=%0t: [CPU READ] I2S_RX_DATA = 0x%08h", $time, dut.cpu_mem_rdata);
-                        $display("Time=%0t: [CPU READ ] Addr=0x%08h, Data=0x%08h", $time, dut.cpu_mem_addr, dut.cpu_mem_rdata);
-                    end
-                end
-            end
-        end
-        // I2S Tracer
-        always @(posedge clk) begin
-            if (dut.i2s_tx_apb.instance_to_wrap.fifo_wr) begin
-                $display("Time=%0t: [I2S TX FIFO WRITE] Data=0x%08h", $time, dut.i2s_tx_apb.instance_to_wrap.fifo_wdata);
-            end
-            if (dut.i2s_tx_apb.instance_to_wrap.fifo_rd_int) begin
-                $display("Time=%0t: [I2S TX FIFO READ] Data=0x%08h", $time, dut.i2s_tx_apb.instance_to_wrap.fifo_rdata);
-            end
-            if (dut.i2s_apb.instance_to_wrap.fifo_wr) begin
-                $display("Time=%0t: [I2S RX FIFO WRITE] Data=0x%08h", $time, dut.i2s_apb.instance_to_wrap.fifo_wdata);
-            end
-        end
-
-        // Track WS and SCK toggles to verify clock generation
-        always @(edge rx_sck) begin
-            $display("Time=%0t: [I2S SCK EDGE] sck=%b, ws=%b, sdo=%b, sdi=%b", $time, rx_sck, rx_ws, sdo, sdi);
-        end
-        always @(edge rx_ws) begin
-            $display("Time=%0t: [I2S WS EDGE] sck=%b, ws=%b, sdo=%b, sdi=%b", $time, rx_sck, rx_ws, sdo, sdi);
-        end
-
-        // ---------------------------------------------------------
-        // 6b. Cycle-by-Cycle CPU-AHB Debug Tracer
-        // ---------------------------------------------------------
-        integer cycle_count = 0;
-        always @(posedge clk) begin
-            if (dut.cpu_mem_addr[31:16] == 16'h2000 || dut.cpu_mem_addr[31:16] == 16'h2001) begin
-                $display("Time=%0t | rstn=%b | wrapper_state=%b valid=%b ready=%b addr=0x%h | htrans=%b haddr=0x%h hready_out=%b | rom_sel=%b rom_ready=%b rom_laddr=0x%h rom_rdata=0x%h",
-                    $time, rstn,
-                    dut.wrapper.state, dut.cpu_mem_valid, dut.cpu_mem_ready, dut.cpu_mem_addr,
-                    dut.cpu_htrans, dut.cpu_haddr, dut.cpu_hready,
-                    dut.boot_rom_HSEL, dut.boot_rom.HREADY, dut.boot_rom.latched_addr, dut.boot_rom.HRDATA);
-                cycle_count = cycle_count + 1;
-            end
-        end
-
-        always @(posedge clk) begin
-            if ($time > 8670000 && $time < 8680000) begin
-                $display("Time=%0t | rstn=%b | state=%b valid=%b ready=%b addr=0x%h | htrans=%b haddr=0x%h hwrite=%b hwdata=0x%h hready_out=%b hrdata=0x%h",
-                    $time, rstn,
-                    dut.wrapper.state, dut.cpu_mem_valid, dut.cpu_mem_ready, dut.cpu_mem_addr,
-                    dut.cpu_htrans, dut.cpu_haddr, dut.cpu_hwrite, dut.cpu_hwdata, dut.cpu_hready, dut.cpu_hrdata);
-            end
-        end
- 
-        /*
-        always @(posedge clk) begin
-            if (dut.cpu.trap) begin
-                $display("Time=%0t: [CPU] TRAP DETECTED! Illegal instruction or crash!", $time);
+            if (dut.data_rvalid && !data_is_write && $isunknown(dut.data_rdata)) begin
+                $display("Time=%0t: [XCHECK] X on data_rdata, data addr 0x%08h", $time, dut.data_addr);
                 $finish;
             end
         end
+    end
 
-        // Check if CPU is stuck
-        integer last_insn_time = 0;
-        always @(posedge clk) begin
-            if (dut.cpu_mem_valid && dut.cpu_mem_ready) begin
-                last_insn_time = $time;
+    // X instruction reaching Ibex decode. Stops at the first occurrence (Ibex's
+    // own assertions would otherwise flood the log every cycle) and prints the
+    // last 8 completed instruction fetches.
+    reg [31:0] fetch_addr_q;                 // address of the fetch in flight
+    reg [31:0] fh_addr [0:7];
+    reg [31:0] fh_data [0:7];
+    integer    fh_i;
+    always @(posedge clk) begin
+        if (dut.instr_gnt) fetch_addr_q <= dut.instr_addr;
+        if (dut.instr_rvalid) begin
+            for (fh_i = 7; fh_i > 0; fh_i = fh_i - 1) begin
+                fh_addr[fh_i] <= fh_addr[fh_i-1];
+                fh_data[fh_i] <= fh_data[fh_i-1];
             end
-            // CPU should not stall for more than 50 us
-            if ($time - last_insn_time > 50000000) begin
-                $display("Time=%0t: [WATCHDOG] CPU stuck! No bus transactions for 50us! Last transaction at %0t.", $time, last_insn_time);
-                $display("Current PC / Addr = 0x%08h", dut.cpu_mem_addr);
-                $finish;
-            end
+            fh_addr[0] <= fetch_addr_q;
+            fh_data[0] <= dut.instr_rdata;
         end
+        // First X written into the register file (usual root cause of later
+        // "X branch decision" / "X operand" assertions inside Ibex).
+        if (rstn && dut.ibex_rf_we_wb && dut.ibex_rf_waddr_wb != 5'd0 &&
+            $isunknown(dut.ibex_rf_wdata_wb)) begin
+            $display("Time=%0t: [XCHECK] X written to x%0d, pc_id=0x%08h (data port addr=0x%08h)",
+                     $time, dut.ibex_rf_waddr_wb, dut.u_ibex_core.id_stage_i.pc_id_i, dut.data_addr);
+            for (fh_i = 7; fh_i >= 0; fh_i = fh_i - 1)
+                $display("        fetch[-%0d] addr=0x%08h data=0x%08h", fh_i, fh_addr[fh_i], fh_data[fh_i]);
+            $finish;
+        end
+        if (rstn && dut.u_ibex_core.id_stage_i.instr_valid_i &&
+            $isunknown(dut.u_ibex_core.id_stage_i.instr_rdata_i)) begin
+            $display("Time=%0t: [XCHECK] X instruction in decode, pc_id=0x%08h instr=0x%08h",
+                     $time, dut.u_ibex_core.id_stage_i.pc_id_i, dut.u_ibex_core.id_stage_i.instr_rdata_i);
+            for (fh_i = 7; fh_i >= 0; fh_i = fh_i - 1)
+                $display("        fetch[-%0d] addr=0x%08h data=0x%08h", fh_i, fh_addr[fh_i], fh_data[fh_i]);
+            $finish;
+        end
+    end
 
-        always @(posedge clk) begin
-            // $time is in ns (timescale 1ns/1ps). 16ms = 16,000,000 ns
-            if ($time > 16050000 && dut.cpu_mem_valid && dut.cpu_mem_ready && dut.cpu_mem_wstrb == 0 && dut.cpu_mem_addr[31:28] == 4'h3) begin
-                $display("Time=%0t: [CPU FETCH >16.05ms] PC=0x%08h", $time, dut.cpu_mem_addr);
-            end
+    // Accelerator / ping-pong register traffic (0x4000_0000-0x6FFF_FFFF),
+    // logged when the data-port access completes. 0x50001000 = PING_PONG_CTRL,
+    // 0x40000C00 / 0x60000C00 = FFT / IFFT CTRL.
+    reg [31:0] acc_addr, acc_wdata;
+    reg [3:0]  acc_be;
+    reg        acc_we;
+    always @(posedge clk) begin
+        if (dut.data_gnt) begin
+            acc_addr  <= dut.data_addr;
+            acc_we    <= dut.data_we;
+            acc_be    <= dut.data_be;
+            acc_wdata <= dut.data_wdata;
         end
- 
-        always @(posedge clk) begin
-            if (dut.cpu_mem_valid && dut.cpu_mem_ready) begin
-                if (dut.cpu_mem_addr >= 32'h40000000 && dut.cpu_mem_addr < 32'h70000000) begin
-                    $display("Time=%0t: [ACCEL ACCESS] Addr=0x%08h Write=%b Data=0x%08h Wstrb=%b", 
-                         $time, dut.cpu_mem_addr, dut.cpu_mem_wstrb != 4'b0000, 
-                         (dut.cpu_mem_wstrb != 4'b0000) ? dut.cpu_mem_wdata : dut.cpu_mem_rdata, 
-                         dut.cpu_mem_wstrb);
-                end
-                if ($time > 10486000) begin // 10.486 ms (just before the crash at 10.4865 ms)
-                    $display("Time=%0t: [CPU DEBUG] Addr=0x%08h Wstrb=%b Rdata=0x%08h", 
-                         $time, dut.cpu_mem_addr, dut.cpu_mem_wstrb, dut.cpu_mem_rdata);
-                    //$display("Time=%0t: [SRAM DEBUG] mem[0x3B] = 0x%08h", $time, dut.sram0.SRAM_0.mem[8'h3B]);
-                end
-            end
-        end
-        */  // ---------------------------------------------------------
-        // 7. Auto-Verification and Frame Dumping Logic
-        // ---------------------------------------------------------
-        integer outfile_fft;
-        integer outfile_ifft;
-        integer outfile_audio;
-        integer f_idx;
-        initial begin
-            outfile_fft = $fopen("./fft_out.txt", "w");
-            outfile_ifft = $fopen("./ifft_out.txt", "w");
-            outfile_audio = $fopen("./audio_out.txt", "w");
-        end
+        if (dut.data_rvalid && acc_addr >= 32'h40000000 && acc_addr < 32'h70000000)
+            $display("Time=%0t: [ACCEL ACCESS] Addr=0x%08h Write=%b Data=0x%08h Wstrb=%b",
+                     $time, acc_addr, acc_we, acc_we ? acc_wdata : dut.data_rdata, acc_we ? acc_be : 4'b0000);
+    end
 
-        always @(posedge clk) begin
-            if (dut.i2s_tx_apb.instance_to_wrap.fifo_wr) begin
-                $fdisplay(outfile_audio, "%08X", dut.i2s_tx_apb.instance_to_wrap.fifo_wdata);
-            end
-        end
+    // ---------------------------------------------------------------------
+    // 7. Output capture
+    // ---------------------------------------------------------------------
+    integer outfile_fft;
+    integer outfile_ifft;
+    integer outfile_audio;
+    integer f_idx;
 
-        always @(posedge clk) begin
-            // The firmware writes to SRAM_BASE + 0x0F00 for handshake
-            // Since SRAM_BASE is the main CPU memory, we check the AHB signals.
-            if (dut.sram_HWRITE && dut.sram_HSEL && dut.sram_HREADY && dut.sram_HADDR == 32'h30007004) begin
-                $display("Time=%0t: [BENCHMARK] CPU Memcpy took %0d cycles", $time, dut.sram_HWDATA);
-            end
-            if (dut.sram_HWRITE && dut.sram_HSEL && dut.sram_HREADY && dut.sram_HADDR == 32'h30007008) begin
-                $display("Time=%0t: [BENCHMARK] DMA Memcpy took %0d cycles", $time, dut.sram_HWDATA);
-            end
-            if (dut.sram_HWRITE && dut.sram_HSEL && dut.sram_HREADY && dut.sram_HADDR == 32'h3000700C) begin
-                $display("Time=%0t: [BENCHMARK] I2S 512-sample collection took %0d cycles", $time, dut.sram_HWDATA);
-            end
-            if (dut.sram_HWRITE && dut.sram_HSEL && dut.sram_HREADY && dut.sram_HADDR == 32'h30007010) begin
-                $display("Time=%0t: [BENCHMARK] FFT accelerator took %0d cycles", $time, dut.sram_HWDATA);
-            end
-            if (dut.sram_HWRITE && dut.sram_HSEL && dut.sram_HREADY && dut.sram_HADDR == 32'h30007000) begin
-                if (dut.sram_HWDATA == 32'h11111111 || 
-                    dut.sram_HWDATA == 32'h22222222 || 
-                    dut.sram_HWDATA == 32'h33333333 || 
-                    dut.sram_HWDATA == 32'h55555555) begin
-                    
-                    $display("Time=%0t: [TESTBENCH] Handshake 0x%08h detected. Dumping current FFT frame to fft_out.txt and IFFT frame to ifft_out.txt...", $time, dut.sram_HWDATA);
-                    
-                    for (f_idx = 0; f_idx < 512; f_idx = f_idx + 1) begin
-                        // Dump FFT/IFFT outputs from the hardware bank (which just finished processing)
-                        // The firmware just processed hardware_bank = frame % 2. Wait, the firmware just toggled it.
-                        // We can dump both banks or just use the current accel_bank_sel (which is still set to the hardware_bank for the current frame)
-                        // Actually, at the end of the frame, the output is in hw_ram.
-                        // Let's just dump hw_ram, which is selected by accel_bank_sel
-                        if (dut.scratchpad_sram.accel_bank_sel == 0) begin
-                            $fdisplay(outfile_fft, "%08X", dut.scratchpad_sram.bank0[f_idx]);
-                            $fdisplay(outfile_ifft, "%08X", dut.scratchpad_sram.bank0[f_idx]);
-                        end else begin
-                            $fdisplay(outfile_fft, "%08X", dut.scratchpad_sram.bank1[f_idx]);
-                            $fdisplay(outfile_ifft, "%08X", dut.scratchpad_sram.bank1[f_idx]);
-                        end
+    initial begin
+        outfile_fft   = $fopen("./fft_out.txt",   "w");
+        outfile_ifft  = $fopen("./ifft_out.txt",  "w");
+        outfile_audio = $fopen("./audio_out.txt", "w");
+    end
+
+    // Speaker output: every sample pushed into the I2S TX FIFO.
+    always @(posedge clk) begin
+        if (dut.i2s_tx_apb.instance_to_wrap.fifo_wr)
+            $fdisplay(outfile_audio, "%08X", dut.i2s_tx_apb.instance_to_wrap.fifo_wdata);
+    end
+
+    // Firmware -> testbench mailbox (main.c), SRAM 0x3000_7F00 (top 256 B, above the stack):
+    //   0x2222_00NN after frame NN (logged), 0x5555_5555 when all frames are done.
+    // On 0x11111111/0x22222222/0x33333333/0x55555555 the bank currently owned
+    // by the accelerators is dumped to BOTH fft_out.txt and ifft_out.txt (512
+    // words each), same as the PicoRV32 golden runs. 0x55555555 ends the run.
+    always @(posedge clk) begin
+        if (mb_valid && mb_wr_addr == 32'h30007F00) begin
+            if (mb_wr_data[31:16] == 16'h2222 && mb_wr_data != 32'h22222222)
+                $display("Time=%0t: [TESTBENCH] Frame %0d done", $time, mb_wr_data[15:0]);
+
+            if (mb_wr_data == 32'h11111111 || mb_wr_data == 32'h22222222 ||
+                mb_wr_data == 32'h33333333 || mb_wr_data == 32'h55555555) begin
+
+                $display("Time=%0t: [TESTBENCH] Handshake 0x%08h detected. Dumping current FFT frame to fft_out.txt and IFFT frame to ifft_out.txt...", $time, mb_wr_data);
+
+                for (f_idx = 0; f_idx < 512; f_idx = f_idx + 1) begin
+                    if (dut.scratchpad_sram.accel_bank_sel == 0) begin
+                        $fdisplay(outfile_fft,  "%08X", dut.scratchpad_sram.bank0[f_idx]);
+                        $fdisplay(outfile_ifft, "%08X", dut.scratchpad_sram.bank0[f_idx]);
+                    end else begin
+                        $fdisplay(outfile_fft,  "%08X", dut.scratchpad_sram.bank1[f_idx]);
+                        $fdisplay(outfile_ifft, "%08X", dut.scratchpad_sram.bank1[f_idx]);
                     end
-                    
-                    if (dut.sram_HWDATA == 32'h55555555) begin
-                        $display("Time=%0t: [TESTBENCH] Simulation successful!", $time);
-                        $fclose(outfile_fft);
-                        $fclose(outfile_ifft);
-                        $fclose(outfile_audio);
-                        $finish;
-                    end
+                end
+
+                if (mb_wr_data == 32'h55555555) begin
+                    $display("Time=%0t: [TESTBENCH] Simulation successful!", $time);
+                    $fclose(outfile_fft);
+                    $fclose(outfile_ifft);
+                    $fclose(outfile_audio);
+                    $finish;
                 end
             end
         end
+    end
 
-
-    endmodule
+endmodule

@@ -16,6 +16,16 @@
 	limitations under the License.
 
 */
+//==========================================================================
+// NM32 integration notes
+// Upstream: Efabless EF_GPIO8 (Apache-2.0), unmodified.
+// Used as APB slave 4 @ 0x2004_0000, CLIC source 5.
+// KNOWN ISSUES in the NM32 integration:
+//   - NM32_top.sv clocks this on pclk (clk/2): APB writes can be dropped.
+//     Switch PCLK to clk before using GPIO.
+//   - The clock-gating cell's rst_n is left unconnected here (the I2S
+//     wrapper had the same issue fixed); XSim warns about it.
+//==========================================================================
 
 /* THIS FILE IS GENERATED, DO NOT EDIT */
 

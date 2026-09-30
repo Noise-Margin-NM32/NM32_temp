@@ -38,6 +38,14 @@
         For streaming audio output, CPU/DMA writes TXDATA whenever
         TX FIFO level is low or TX FIFO is empty.
 */
+//==========================================================================
+// NM32 integration notes
+// NM32-written APB wrapper in the EF_I2S style (not upstream).
+// Used as I2S TX, APB slave 1 @ 0x2001_0000, CLIC source 1. This block is
+// the I2S clock master: it generates sck/ws for the whole audio path.
+// tx_fifo_full_o / tx_fifo_empty_o feed the TX DMA request line.
+// PCLK must be the full-rate clk (see AHB_APB_Bridge.sv).
+//==========================================================================
 
 module EF_I2S_TX_APB #(
     parameter DW = 32,
@@ -57,6 +65,7 @@ module EF_I2S_TX_APB #(
     output wire [31:0]  PRDATA,
     output wire         IRQ,
 
+    // FIFO status for the DMA request line (NM32 addition)
     output wire         tx_fifo_full_o,
     output wire         tx_fifo_empty_o,
 
@@ -83,7 +92,7 @@ module EF_I2S_TX_APB #(
     wire apb_we    = PWRITE & apb_valid;
     wire apb_re    = (~PWRITE) & apb_valid;
 
-    assign PREADY = 1'b1; // Ensure PREADY is synchronized with PCLK
+    assign PREADY = 1'b1;   // zero-wait APB slave
 
     // ------------------------------------------------------------
     // Registers
@@ -167,9 +176,6 @@ module EF_I2S_TX_APB #(
     wire          tx_fifo_empty;
     wire [AW-1:0] tx_fifo_level;
     wire          tx_busy;
-
-    assign tx_fifo_full_o  = tx_fifo_full;
-    assign tx_fifo_empty_o = tx_fifo_empty;
 
     wire clock_gate_enabled = sc_testmode ? 1'b1 : GCLK_REG[0];
     wire tx_core_en = tx_en_reg & clock_gate_enabled;
@@ -282,6 +288,10 @@ module EF_I2S_TX_APB #(
         (PADDR[15:0] == RIS_REG_OFFSET)               ? {29'd0, RIS_REG} :
         (PADDR[15:0] == GCLK_REG_OFFSET)              ? {31'd0, GCLK_REG} :
                                                          32'hDEADBEEF;
+
+    // NM32: FIFO status for dma_tx_inst.DREQ
+    assign tx_fifo_full_o  = tx_fifo_full;
+    assign tx_fifo_empty_o = tx_fifo_empty;
 
 endmodule
 

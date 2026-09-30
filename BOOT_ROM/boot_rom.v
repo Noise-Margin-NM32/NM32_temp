@@ -1,3 +1,17 @@
+//==========================================================================
+// Project : NM32 "KAVACH" SoC (Noise Margin)
+// Module  : boot_rom_ahb
+// Purpose : 4 KB read-only boot memory, AHB slave 2 @ 0x0000_0000. Holds
+//           start.S + bootloader.c (the .boot section of firmware.elf).
+//           PicoRV32 resets to 0x80 inside this ROM.
+// Clocks  : HCLK (system clk)
+// Notes   : - Contents come from firmware/bootrom.hex via $readmemh. The
+//             relative path is resolved from the XSim run directory
+//             (NM32_top_temp/NM32_top_temp.sim/sim_1/behav/xsim/).
+//           - Zero wait states, always OKAY. Writes are ignored.
+//           - The latched address only updates on a ROM access, so HRDATA
+//             stays stable however long the master takes to sample it.
+//==========================================================================
 `timescale 1ns / 1ps
 
 module boot_rom_ahb (
@@ -17,14 +31,12 @@ module boot_rom_ahb (
     // 4KB Memory Array (1024 words x 32 bits)
     reg [31:0] memory [0:1023];
 
-    // This is where the magic happens! The simulator loads your compiled code here.
+    // Firmware image (build with `make -C firmware`)
     initial begin
         $readmemh("./../../../../../firmware/bootrom.hex", memory);
     end
 
-    // --- AHB Address Phase (Cleaned up, unused code removed) ---
-
-    // --- AHB Address Latch ---
+    // ---- Address latch ----
     reg [31:0] latched_addr;
 
     always @(posedge HCLK or negedge HRESETn) begin
@@ -36,15 +48,8 @@ module boot_rom_ahb (
         end
     end
 
-    // --- AHB Data Output ---
-    // Instantly output the memory at the latched address. 
-    // Because we never clear this to zero, the data stays perfectly stable 
-    // on the bus, no matter how long the CPU wrapper takes to read it!
+    // ---- Read data (word addressed) ----
     assign HRDATA = memory[latched_addr[11:2]];
-
-    // assign HREADYOUT = 1'b1; 
-    // assign HRESP     = 2'b00;
-
 
     // ROM is always instantly ready and always returns OKAY (00)
     assign HREADYOUT = 1'b1; 

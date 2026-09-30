@@ -16,6 +16,11 @@
 	limitations under the License.
 
 */
+//==========================================================================
+// NM32 integration notes
+// Upstream: Efabless EF_GPIO8 core (Apache-2.0), unmodified.
+// No `timescale in this file (XSim warns); harmless.
+//==========================================================================
 
 module EF_GPIO8 (
     input  wire         clk,

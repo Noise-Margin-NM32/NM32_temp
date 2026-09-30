@@ -16,6 +16,19 @@
 	limitations under the License.
 
 */
+//==========================================================================
+// NM32 integration notes
+// Upstream: Efabless EF_I2S (Apache-2.0). Generated file, locally edited.
+// Used as I2S RX, APB slave 0 @ 0x2000_0000, CLIC source 0.
+// Local modifications:
+//   - ws/sck are INPUTS (RX runs as I2S slave; in tb.sv they are the TX
+//     clocks looped back).
+//   - rst_n connected on the clock-gating cell.
+//   - PREADY tied to 1 (the NM32 bridge does not sample PREADY).
+//   - rx_fifo_empty / rx_fifo_full outputs added (DMA request line).
+// PCLK must be the full-rate clk (see AHB_APB_Bridge.sv).
+// Register map: see the *_REG_OFFSET localparams below and main.c.
+//==========================================================================
 
 /* THIS FILE IS GENERATED, DO NOT EDIT */
 
@@ -39,9 +52,10 @@ module EF_I2S_APB #(
     output wire [ 31:0] PRDATA,
     output wire         IRQ,
 
+    // FIFO status for the DMA request line (NM32 addition)
     output wire         rx_fifo_empty,
     output wire         rx_fifo_full,
-
+    
     input  wire [1-1:0] ws,
     input  wire [1-1:0] sck,
     input  wire [1-1:0] sdi
@@ -287,7 +301,8 @@ module EF_I2S_APB #(
 
   assign RXDATA_WIRE = fifo_rdata;
   assign fifo_rd = (apb_re & (PADDR[16-1:0] == RXDATA_REG_OFFSET));
-
+  // NM32: FIFO status for dma_rx_inst.DREQ
   assign rx_fifo_empty = fifo_empty;
   assign rx_fifo_full  = fifo_full;
+
 endmodule

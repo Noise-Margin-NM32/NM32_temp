@@ -48,3 +48,6 @@ To achieve the 100% intended dataflow, we need to implement the following:
 3. **SPI & External Flash:** Add an SPI controller to the bus so the SoC can boot from an external Flash chip and load instructions into an ITCM.
 4. **General Peripherals (GPIO, Watchdog):** Integrate these existing IPs into the AHB/APB bus and map their registers.
 5. **Filtration Algorithm:** Write the actual C code for the audio filtration process that sits between the FFT and IFFT phases.
+
+## Known issue (2026-10-03)
+- Frames 0-6 receive identical `fft_in`: the input buffer is not advancing (suspect DMA RX / `wait_and_unpack_dma`). The sim completes ("Simulation successful", ~61.5 ms), but the output audio is not yet correct.

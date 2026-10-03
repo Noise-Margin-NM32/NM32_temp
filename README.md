@@ -1,51 +1,104 @@
-# NM32 SoC Architecture Updates
+# NM32 SoC (KAVACH), `ibex` branch
 
-This repository contains the latest architectural improvements to the NM32 SoC for high-performance audio processing, specifically related to the integration of the FFT and IFFT accelerators with the system bus and memory.
+NM32 is a RISC-V System-on-Chip for real-time selective audio noise suppression. A microphone stream comes in over
+I2S. The CPU runs it through 512-point FFT/IFFT hardware accelerators, applies a spectral mask that removes the
+selected "trigger" sounds, and streams the result back out over I2S.
 
-## Key Architectural Changes
+On this branch the CPU is **Ibex** (lowRISC, RV32IMC), which replaces PicoRV32. The full audio pipeline runs
+end-to-end in Vivado XSim.
 
-### 1. Zero-Copy Architecture (Direct Connection)
-Previously, the FFT and IFFT accelerators relied on their own internal "Data RAMs". Processing an audio frame meant the CPU had to copy data from the main scratchpad into the accelerator's internal memory via the AHB bus, wait for completion, and copy it back out.
-**The Change:** We removed the internal RAMs. The accelerators now feature a dedicated, direct hardware connection to the newly implemented Ping-Pong SRAM.
-**How it helps:** Bypassing the AHB bus completely eliminates the severe bottleneck of copying data back and forth. The CPU merely writes incoming audio to the shared memory and signals the accelerators to start. The accelerators compute directly on that memory, saving thousands of clock cycles per frame.
+## Status (2026-10-03)
 
-### 2. Ping-Pong Buffer Strategy
-**The Change:** The shared SRAM was divided into two distinct banks (Bank 0 and Bank 1) governed by a hardware `PING_PONG_CTRL` switch.
-**How it helps:** This enables real-time "double-buffering". While the FFT/IFFT hardware is crunching numbers on Bank 0, the CPU can simultaneously write the newly arriving audio samples to Bank 1. They operate entirely in parallel without memory collisions, ensuring zero dropped audio samples and maximum throughput.
+| Item | State |
+|---|---|
+| Ibex boot (Boot ROM, then SPI flash, then SRAM) | Working |
+| FFT, mask and IFFT pipeline, I2S RX and TX, DMA | Working. The sim ends with `Simulation successful` (~61.5 ms) |
+| CLIC interrupt controller, GPIO, watchdog (EF_WDT32) | Integrated in RTL. Firmware still polls instead of using interrupts |
+| Fresh-clone simulation in Vivado 2025.2 | Verified: no errors, traps or watchdog stops |
+| **Known bug** | Frames 0-6 receive identical FFT input (input buffer not advancing). See `STATUS.md` |
 
-### 3. Software Twiddle Factors (ROM Removal)
-**The Change:** The massive Vivado hardware IP block (`twiddle_rom_512.v`) was removed. Twiddle factors (sine/cosine coefficients) are now embedded as a software `const` array in the firmware `.rodata`. During the boot process, the CPU loads these factors into a tiny internal RAM inside the accelerators over the AHB bus.
-**How it helps:** We save massive amounts of FPGA logic and routing resources. Additionally, it gives us ultimate software flexibility—modifying the FFT size or tweaking coefficients no longer requires re-synthesizing massive hardware blocks.
+## Architecture
 
-### 4. Wait-State Timing Fix for SRAM Reads
-**The Change:** Block RAMs on FPGAs are synchronous and possess a 1-clock-cycle read latency. The initial custom AHB interface incorrectly asserted zero wait states (`hready_out = 1`). We modified the interface to inject exactly 1 wait state (`hready_out = 0`) upon a read request.
-**How it helps:** It prevents the CPU from sampling the bus before the memory outputs the data. This completely resolved an issue where undefined `XXXXXXXX` garbage data was propagating through the FFT math engine, ensuring absolute data integrity at high CPU frequencies.
+**AHB masters**, which share one arbiter and one decoder:
 
-## How to Run the Simulation
+| Master | Source |
+|---|---|
+| 0 | Ibex instruction port, via `ibex_to_ahb` |
+| 1 | Ibex data port, via `ibex_to_ahb` |
+| 2 | DMA |
 
-If you are cloning this repository to a new machine, follow these steps to instantly run the SoC simulation with perfect mathematical data output. The testbench is 100% portable and uses relative paths.
+**AHB slaves:**
 
-1. **Clone and Checkout:**
-   Clone the repository and make sure you switch to the correct branch containing the zero-copy architecture fixes.
-   ```bash
-   git clone <repository_url>
-   cd NM32_SoC
-   git checkout feature/zero-copy-ping-pong
-   ```
+| Slave | Address |
+|---|---|
+| APB bridge | `0x2000_0000` |
+| SRAM (32 KB: code and data) | `0x3000_0000` |
+| Boot ROM | `0x0000_0000` |
+| FFT | `0x4000_0000` |
+| Ping-pong scratchpad | `0x5000_0000` |
+| IFFT | `0x6000_0000` |
+| CLIC | `0x7000_0000` |
 
-2. **Generate the Input Audio:**
-   The simulated `audio_in.txt` samples are not tracked in git. You can instantly generate a synthetic audio mix (1000Hz + 2500Hz) by running this single python command in the root folder:
-   ```bash
-   python3 -c "import verify_fft; verify_fft.generate_audio_signal()"
-   ```
+**APB peripherals:** I2S RX, I2S TX, SPI master (boot flash), DMA, GPIO and the watchdog. The exact addresses are
+the `#define`s in `firmware/main.c`, and they must match `NM32_top.sv`.
 
-3. **Run Vivado:**
-   * Open the Vivado project (`NM32_top_temp/NM32_top_temp.xpr`).
-   * Click **Run Simulation**.
-   * The testbench will read the `audio_in.txt` and automatically output `fft_out.txt` and `ifft_out.txt` in the root directory!
+### Key design points
 
-4. **(Optional) Verify Outputs:**
-   If you have matplotlib installed, you can plot the waveforms to verify the hardware mathematical accuracy by running:
-   ```bash
-   python3 verify_fft.py
-   ```
+- **Zero-copy ping-pong.** The FFT and IFFT have no internal data RAM. They compute in place on
+  `sram/ping_pong_ram.v` through a dedicated port. `PING_PONG_CTRL` (`0x5000_1000`) decides which bank the hardware
+  owns and which bank the CPU owns, so the CPU fills one bank while the accelerators work on the other.
+- **Twiddle factors in firmware.** The twiddle factors are a `const` table in `main.c`. The CPU loads them into the
+  accelerators at boot, so no twiddle ROM IP is needed.
+- **One clock for all APB peripherals.** Every APB peripheral runs on `clk`. The bridge holds `PENABLE` for only one
+  `clk` cycle, so a peripheral clocked on `pclk` drops writes and causes polling hangs.
+
+### Boot flow
+
+1. Ibex starts in the Boot ROM, which is loaded from `firmware/bootrom.hex`.
+2. The bootloader copies the program from the SPI flash model (`firmware/firmware_flash.hex`) into SRAM.
+3. It then jumps to `main()`.
+4. `main()` loads the twiddle factors and runs the per-frame loop: I2S RX, FFT, mask, IFFT, I2S TX.
+
+## How to run the simulation
+
+```bash
+git clone -b ibex git@github.com:Noise-Margin-NM32/NM32_temp.git
+cd NM32_temp/NM32_top_temp
+vivado -mode batch -source sim.tcl      # runs until $finish
+```
+
+- **GUI alternative:** open `NM32_top_temp/NM32_top_temp.xpr` and click **Run Simulation**, then **Run All**.
+- **Input:** `firmware/audio_in.txt` (tracked in git) is fed in as the microphone signal.
+- **Outputs:** written to `NM32_top_temp/NM32_top_temp.sim/sim_1/behav/xsim/`:
+  - `fft_in.txt` / `fft_out.txt`
+  - `ifft_in.txt` / `ifft_out.txt`
+  - `audio_out.txt`
+- **Check the accelerators against NumPy:** run `python3 tools/check_fft.py` from the xsim directory.
+- **Listen to the output:** `python3 NM32_top_temp/hex2wav.py audio_out.txt out.wav`.
+- **Verbose debug traces:** add `-d NM32_TRACE` to the xvlog options.
+
+### Rebuilding the firmware
+
+```bash
+cd firmware && make     # needs riscv64-unknown-elf-gcc
+```
+
+The build regenerates `bootrom.hex` and `firmware_flash.hex`, which the simulation loads. Rebuild after every
+change to the firmware.
+
+## Repository layout
+
+| Path | Contents |
+|---|---|
+| `NM32_top_temp/` | Vivado project, top level `NM32_top.sv`, testbench `tb.sv` |
+| `Ibex/` | Ibex core sources |
+| `ahb_decoder_and_arbiter/`, `AHB2APB/` | Bus fabric |
+| `FFT_Accelerator/`, `IFFT_Accelerator/` | FFT and IFFT accelerators |
+| `sram/` | SRAM and ping-pong RAM |
+| `I2S/`, `GPIO/`, `apb_spi_master-master/`, `DMA_Module/`, `wdt/`, `clic.v` | Peripherals |
+| `BOOT_ROM/`, `Flash/` | Boot ROM and flash model |
+| `firmware/` | Boot loader, `main.c`, linker script |
+| `tools/` | Checking scripts |
+| `legacy/` | Retired code, kept for reference |
+
+More detail: `STATUS.md` (open issues), `DATAPATH.md` (per-frame flow) and `NM32_SoC_Spec_2.0.md` (spec).

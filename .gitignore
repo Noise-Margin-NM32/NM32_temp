@@ -29,3 +29,10 @@ verilator_tb/obj_dir/
 
 # ---- Python ----
 __pycache__/
+
+# ---- Personal / scratch files ----
+R_SARANG_RESUME.pdf
+resume.*
+SESSION_SUMMARY.md
+sim_output.txt
+vivado_run.out

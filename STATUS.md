@@ -49,5 +49,12 @@ To achieve the 100% intended dataflow, we need to implement the following:
 4. **General Peripherals (GPIO, Watchdog):** Integrate these existing IPs into the AHB/APB bus and map their registers.
 5. **Filtration Algorithm:** Write the actual C code for the audio filtration process that sits between the FFT and IFFT phases.
 
-## Known issue (2026-10-03)
-- Frames 0-6 receive identical `fft_in`: the input buffer is not advancing (suspect DMA RX / `wait_and_unpack_dma`). The sim completes ("Simulation successful", ~61.5 ms), but the output audio is not yet correct.
+## Resolved (2026-10-03)
+- "Frames 0-6 identical": not an RTL bug. The old `audio_in.txt` repeated every 32 samples, so every 256-hop window was identical. Replaced by a 4096-sample non-periodic stimulus from `tools/gen_audio_in.py` (tone at bin 20.3 + siren sweep bins 50-60 from sample 1536); `tb.sv` input memory enlarged to 4096. All 8 frames now differ.
+- The stray `0x0000` RX sample was a genuine zero crossing of the old sine input.
+- Spectral mask never suppressed anything: `trigger_vecs_q15` was an all-zero placeholder. Now a unit-norm Hann template over bins 40-70. Result: background tone passes unchanged, siren bins attenuated ~20 dB (frames 5-7). `check_fft.py` PASS.
+- Golden outputs for this stimulus saved outside the repo in `~/NM32_golden/ibex/`.
+
+## Open
+- Firmware still polls; CLIC interrupt handlers, watchdog kick and GPIO driver are not written yet.
+- `audio_out` peaks at full scale (-32768) at the siren onset; check OLA gain/saturation.

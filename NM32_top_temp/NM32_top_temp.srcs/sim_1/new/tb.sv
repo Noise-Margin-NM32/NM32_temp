@@ -52,9 +52,9 @@ module tb;
     //    On each falling edge of WS (start of the left slot) load the next
     //    32-bit sample, then shift it out MSB-first after the standard
     //    1-bit I2S delay. The right slot is sent as zeros. The last sample
-    //    repeats once the 2048-entry input file is exhausted.
+    //    repeats once the 4096-entry input file is exhausted.
     // ---------------------------------------------------------------------
-    reg  [31:0] audio_in_mem [0:2047];
+    reg  [31:0] audio_in_mem [0:4095];
     integer     sample_idx  = 0;
     reg         sdi_reg     = 1'b0;
     reg         last_ws_reg = 1'b1;
@@ -72,7 +72,7 @@ module tb;
 `ifdef NM32_TRACE
             $display("Time=%0t: [SERIALIZER] Loaded sample_idx=%0d, val=0x%08h", $time, sample_idx, audio_in_mem[sample_idx]);
 `endif
-            if (sample_idx < 2047) sample_idx <= sample_idx + 1;
+            if (sample_idx < 4095) sample_idx <= sample_idx + 1;
             sdi_reg <= 1'b0;                          // 1-bit I2S delay
         end else if (rx_ws == 1'b0) begin
             sdi_reg   <= shift_reg[31];               // left slot: data

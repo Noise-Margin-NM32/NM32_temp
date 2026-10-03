@@ -16,8 +16,11 @@
 
     Notes:
         - Uses ef_util_fifo with parameters DW and AW.
+        - Every WS slot is 32 SCK long, as EF_I2S (RX) expects: it keeps
+          the last 32 bits and takes the top sample_size of them.
         - sample_size controls number of valid bits shifted out.
-        - Data is shifted MSB-first from fifo_rdata[sample_size-1:0].
+        - Data is shifted MSB-first from fifo_rdata[sample_size-1:0], then
+          the slot is padded with zeros up to 32 SCK.
         - left_justified = 1 means MSB is transmitted immediately in the slot.
         - left_justified = 0 inserts one dummy bit before MSB, similar to standard I2S.
 */
@@ -109,6 +112,8 @@ module EF_I2S_TX #(
     reg [DW-1:0] shift_sample;
     reg [5:0]    bit_index;
     reg          delay_bit;
+    reg          data_done;   // all sample bits sent; padding the slot
+    reg [4:0]    slot_cnt;    // SCK index inside the 32-SCK slot
 
     assign tx_busy = (state != ST_IDLE);
 
@@ -128,6 +133,8 @@ module EF_I2S_TX #(
             shift_sample <= {DW{1'b0}};
             bit_index    <= 6'd0;
             delay_bit    <= 1'b0;
+            data_done    <= 1'b0;
+            slot_cnt     <= 5'd0;
         end else begin
             fifo_rd_int <= 1'b0;
 
@@ -141,6 +148,8 @@ module EF_I2S_TX #(
                 shift_sample <= {DW{1'b0}};
                 bit_index    <= 6'd0;
                 delay_bit    <= 1'b0;
+                data_done    <= 1'b0;
+                slot_cnt     <= 5'd0;
             end else begin
 
                 // ---------------------------------------------------------
@@ -156,6 +165,8 @@ module EF_I2S_TX #(
                             shift_sample <= fifo_rdata;
                             bit_index    <= safe_sample_size - 1'b1;
                             delay_bit    <= ~left_justified;
+                            data_done    <= 1'b0;
+                            slot_cnt     <= 5'd0;
                             state        <= ST_SHIFT;
                         end
                     end
@@ -193,16 +204,20 @@ module EF_I2S_TX #(
                                 // Standard I2S-style one-bit delay.
                                 sdo_reg   <= 1'b0;
                                 delay_bit <= 1'b0;
-                            end else begin
+                            end else if (!data_done) begin
                                 sdo_reg <= shift_sample[bit_index];
-
-                                if (bit_index == 6'd0) begin
-                                    state     <= ST_IDLE;
-                                    ws_reg    <= ~ws_reg;
-                                end else begin
-                                    bit_index <= bit_index - 1'b1;
-                                end
+                                if (bit_index == 6'd0) data_done <= 1'b1;
+                                else                   bit_index <= bit_index - 1'b1;
+                            end else begin
+                                sdo_reg <= 1'b0;             // pad to 32 SCK
                             end
+
+                            // Last SCK of the 32-SCK slot: switch channel.
+                            if (slot_cnt == 5'd31) begin
+                                state  <= ST_IDLE;
+                                ws_reg <= ~ws_reg;
+                            end
+                            slot_cnt <= slot_cnt + 1'b1;
                         end else begin
                             sdo_reg <= 1'b0;
                         end

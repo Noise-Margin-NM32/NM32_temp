@@ -13,8 +13,10 @@
 //           - Outputs (written to the simulator run directory, for XSim:
 //             NM32_top_temp/NM32_top_temp.sim/sim_1/behav/xsim/):
 //               audio_out.txt  every word written to the I2S TX FIFO
-//               fft_out.txt / ifft_out.txt  accelerator bank dump on a
-//                             firmware handshake (see section 7)
+//               fft_out.txt    accelerator bank at each FFT DONE (512 words
+//                              per frame, bit-reversed layout, all frames)
+//               ifft_out.txt   same at each IFFT DONE (time-domain frame)
+//               fft_in.txt / ifft_in.txt  the bank as each FFT / IFFT starts
 // Defines : NM32_FAST_BOOT - backdoor-load firmware_flash.hex into SRAM and
 //                            NOP the bootloader call at ROM 0x88 (saves ~13 ms)
 //           NM32_TRACE     - verbose debug tracing (tb + RTL)
@@ -294,38 +296,62 @@ module tb;
             $fdisplay(outfile_audio, "%08X", dut.i2s_tx_apb.instance_to_wrap.fifo_wdata);
     end
 
-    // Firmware -> testbench mailbox (main.c), SRAM 0x3000_7F00 (top 256 B, above the stack):
-    //   0x2222_00NN after frame NN (logged), 0x5555_5555 when all frames are done.
-    // On 0x11111111/0x22222222/0x33333333/0x55555555 the bank currently owned
-    // by the accelerators is dumped to BOTH fft_out.txt and ifft_out.txt (512
-    // words each), same as the PicoRV32 golden runs. 0x55555555 ends the run.
+    // Microphone sanity check: the first few samples entering the I2S RX FIFO.
+    integer rx_seen = 0;
+    always @(posedge clk) begin
+        if (dut.i2s_apb.instance_to_wrap.fifo_wr && rx_seen < 6) begin
+            $display("Time=%0t: [I2S RX] fifo_wdata=0x%08h", $time, dut.i2s_apb.instance_to_wrap.fifo_wdata);
+            rx_seen = rx_seen + 1;
+        end
+    end
+
+    // Accelerator result dumps (all frames, 512 words each, appended):
+    //   fft_out.txt   bank owned by the accelerators when FFT DONE rises
+    //                 (raw spectrum, bit-reversed layout as the HW left it)
+    //   ifft_out.txt  same, when IFFT DONE rises (time-domain frame)
+    task dump_accel_bank(input integer fd);
+        for (f_idx = 0; f_idx < 512; f_idx = f_idx + 1)
+            $fdisplay(fd, "%08X", dut.scratchpad_sram.accel_bank_sel ?
+                                  dut.scratchpad_sram.bank1[f_idx] :
+                                  dut.scratchpad_sram.bank0[f_idx]);
+    endtask
+
+    // fft_in.txt / ifft_in.txt: the bank as each accelerator starts (its
+    // input), so tools/check_fft.py can check every frame against NumPy.
+    integer outfile_fft_in, outfile_ifft_in;
+    initial begin
+        outfile_fft_in  = $fopen("./fft_in.txt",  "w");
+        outfile_ifft_in = $fopen("./ifft_in.txt", "w");
+    end
+
+    reg fft_irq_q = 1'b0, ifft_irq_q = 1'b0, fft_busy_q = 1'b0, ifft_busy_q = 1'b0;
+    always @(posedge clk) begin
+        fft_irq_q   <= dut.fft_irq;
+        ifft_irq_q  <= dut.ifft_irq;
+        fft_busy_q  <= dut.fft_wrapper_inst.fft_busy;
+        ifft_busy_q <= dut.ifft_wrapper_inst.ifft_busy;
+        if (dut.fft_wrapper_inst.fft_busy   && !fft_busy_q)  dump_accel_bank(outfile_fft_in);
+        if (dut.ifft_wrapper_inst.ifft_busy && !ifft_busy_q) dump_accel_bank(outfile_ifft_in);
+        if (dut.fft_irq  && !fft_irq_q)  dump_accel_bank(outfile_fft);
+        if (dut.ifft_irq && !ifft_irq_q) dump_accel_bank(outfile_ifft);
+    end
+
+    // Firmware -> testbench mailbox (main.c), SRAM 0x3000_7F00 (top 256 B,
+    // above the stack): 0x2222_00NN after frame NN (logged), 0x5555_5555
+    // when all frames are done (ends the run).
     always @(posedge clk) begin
         if (mb_valid && mb_wr_addr == 32'h30007F00) begin
             if (mb_wr_data[31:16] == 16'h2222 && mb_wr_data != 32'h22222222)
                 $display("Time=%0t: [TESTBENCH] Frame %0d done", $time, mb_wr_data[15:0]);
 
-            if (mb_wr_data == 32'h11111111 || mb_wr_data == 32'h22222222 ||
-                mb_wr_data == 32'h33333333 || mb_wr_data == 32'h55555555) begin
-
-                $display("Time=%0t: [TESTBENCH] Handshake 0x%08h detected. Dumping current FFT frame to fft_out.txt and IFFT frame to ifft_out.txt...", $time, mb_wr_data);
-
-                for (f_idx = 0; f_idx < 512; f_idx = f_idx + 1) begin
-                    if (dut.scratchpad_sram.accel_bank_sel == 0) begin
-                        $fdisplay(outfile_fft,  "%08X", dut.scratchpad_sram.bank0[f_idx]);
-                        $fdisplay(outfile_ifft, "%08X", dut.scratchpad_sram.bank0[f_idx]);
-                    end else begin
-                        $fdisplay(outfile_fft,  "%08X", dut.scratchpad_sram.bank1[f_idx]);
-                        $fdisplay(outfile_ifft, "%08X", dut.scratchpad_sram.bank1[f_idx]);
-                    end
-                end
-
-                if (mb_wr_data == 32'h55555555) begin
-                    $display("Time=%0t: [TESTBENCH] Simulation successful!", $time);
-                    $fclose(outfile_fft);
-                    $fclose(outfile_ifft);
-                    $fclose(outfile_audio);
-                    $finish;
-                end
+            if (mb_wr_data == 32'h55555555) begin
+                $display("Time=%0t: [TESTBENCH] Simulation successful!", $time);
+                $fclose(outfile_fft);
+                $fclose(outfile_ifft);
+                $fclose(outfile_fft_in);
+                $fclose(outfile_ifft_in);
+                $fclose(outfile_audio);
+                $finish;
             end
         end
     end

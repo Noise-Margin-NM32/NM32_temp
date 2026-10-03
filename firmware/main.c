@@ -73,7 +73,14 @@
 #define SMOOTH_ONE_MINUS_A_Q15  19661    /* 0.6 * 32767 */
 #define TRIGGER_MULT_Q15        1        /* multiplier for projection strength, keep at 1 initially */
 
-#define INPUT_SHIFT_FFT    5             /* shift input right by this many bits to guarantee no FFT overflow */
+/* Gain staging. The FFT halves at every one of its 9 stages (output =
+ * fft(x)/512), so it cannot overflow and needs no input headroom shift.
+ * The IFFT also halves per stage, which exactly supplies the 1/N of an
+ * inverse DFT, so FFT -> IFFT returns x/512. IFFT_GAIN_SHIFT restores
+ * unity gain. (The old INPUT_SHIFT_FFT = 5 on top of that left the output
+ * at x/16384, i.e. below 1 LSB: silence.) */
+#define INPUT_SHIFT_FFT    0
+#define IFFT_GAIN_SHIFT    9
 #define NUM_FRAMES         8             /* number of hops to process before halting (sim-friendly) */
 
 extern const uint32_t fft_twiddles[256];
@@ -250,7 +257,7 @@ static void init_twiddles(void) {
 }
 
 /* -------------------------------------------------------------------------- */
-/*  I2S bring-up (unchanged)                                                  */
+/*  I2S bring-up                                                              */
 /* -------------------------------------------------------------------------- */
 
 static void init_i2s(void) {
@@ -258,8 +265,15 @@ static void init_i2s(void) {
     I2S_TX_GCLK = 1;
     I2S_RX_PR   = 2;
     I2S_TX_PR   = 2;
-    I2S_RX_CFG  = 0x20B;
-    I2S_TX_CFG  = 0x20B;
+    /* CFG bits: [1:0] channels, [3] left_justified, [9:4] sample_size.
+     * Both sides: standard I2S (1-bit delay), 16-bit samples in bits [15:0]
+     * of each FIFO word, 32-SCK slots.
+     * RX = 0x102: left slot only, so every RX FIFO word is a mic sample.
+     * TX = 0x103: stereo; TX consumes one FIFO word per slot (L, R, L, ...).
+     * (The old 0x20B, 32-bit left-justified, left RX samples in the upper
+     * half-word, so the firmware read 0 and the pipeline ran on silence.) */
+    I2S_RX_CFG  = 0x102;
+    I2S_TX_CFG  = 0x103;
     I2S_RX_CTRL = 2;
     I2S_TX_CTRL = 2;
     for (int i = 0; i < 8; i++) I2S_TX_DATA = 0;
@@ -291,7 +305,7 @@ static void init_i2s(void) {
 #define DMA_TX_CTRL     (*((volatile uint32_t*)(DMA_TX_BASE + 0x0C)))
 #define DMA_TX_STATUS   (*((volatile uint32_t*)(DMA_TX_BASE + 0x10)))
 
-static uint32_t dma_rx_buf[2][HOP * 2];
+static uint32_t dma_rx_buf[2][HOP];       /* left-channel samples */
 static uint32_t dma_tx_buf[2][HOP * 2];
 
 static void pack_and_start_dma(const int16_t *tx_samples, int hop, int p) {
@@ -307,7 +321,7 @@ static void pack_and_start_dma(const int16_t *tx_samples, int hop, int p) {
 
     DMA_RX_SRC_ADDR = I2S_RX_BASE + 0x00;
     DMA_RX_DST_ADDR = (uint32_t)dma_rx_buf[p];
-    DMA_RX_LEN = hop * 2;
+    DMA_RX_LEN = hop;
     DMA_RX_CTRL = 0x5;
 }
 
@@ -318,7 +332,7 @@ static void wait_and_unpack_dma(int hop, int p) {
     DMA_TX_STATUS = 1;
 
     for (int i = 0; i < hop; i++) {
-        int16_t new_sample = (int16_t)(dma_rx_buf[p][i * 2] << 1);
+        int16_t new_sample = (int16_t)dma_rx_buf[p][i];
         input_buffer[input_write_ptr] = new_sample;
         input_write_ptr = (input_write_ptr + 1) % N_FFT;
     }
@@ -376,13 +390,16 @@ static void write_bank_spectrum_bitrev(volatile uint32_t *bank) {
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Read IFFT output (natural-order Q15) into an int16 output buffer          */
+/*  Read IFFT output (natural order) into int16, restoring unity gain        */
 /* -------------------------------------------------------------------------- */
 
 static void read_bank_ifft(volatile uint32_t *bank, int16_t *out) {
     for (int i = 0; i < N_FFT; i++) {
-        uint32_t v = bank[i];
-        out[i]     = (int16_t)(v & 0xFFFF);
+        int32_t v = (int32_t)(int16_t)(bank[i] & 0xFFFF);
+        v <<= IFFT_GAIN_SHIFT;                 /* undo FFT's 1/512 */
+        if (v >  32767) v =  32767;
+        if (v < -32768) v = -32768;
+        out[i] = (int16_t)v;
     }
 }
 

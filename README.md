@@ -7,15 +7,16 @@ selected "trigger" sounds, and streams the result back out over I2S.
 On this branch the CPU is **Ibex** (lowRISC, RV32IMC), which replaces PicoRV32. The full audio pipeline runs
 end-to-end in Vivado XSim.
 
-## Status (2026-10-03)
+## Status (2026-10-05)
 
 | Item | State |
 |---|---|
 | Ibex boot (Boot ROM, then SPI flash, then SRAM) | Working |
-| FFT, mask and IFFT pipeline, I2S RX and TX, DMA | Working. The sim ends with `Simulation successful` (~61.5 ms) |
+| FFT, mask and IFFT pipeline, I2S RX and TX, DMA | Working. The sim ends with `Simulation successful` (~53.2 ms). `tools/check_fft.py` PASS |
+| Dual-port SRAM (separate instruction/data paths) | Working. Ibex fetches from SRAM use a dedicated port via `ibex_imem_router`; data and DMA stay on AHB |
+| Audio quality | Tone reconstructed within about -25 to -31 dB, no clipping (peak 18148). Siren cut is only about 4-6 dB on the 8-frame test |
 | CLIC interrupt controller, GPIO, watchdog (EF_WDT32) | Integrated in RTL. Firmware still polls instead of using interrupts |
 | Fresh-clone simulation in Vivado 2025.2 | Verified: no errors, traps or watchdog stops |
-| **Known bug** | Frames 0-6 receive identical FFT input (input buffer not advancing). See `STATUS.md` |
 
 ## Architecture
 
@@ -23,7 +24,7 @@ end-to-end in Vivado XSim.
 
 | Master | Source |
 |---|---|
-| 0 | Ibex instruction port, via `ibex_to_ahb` |
+| 0 | Ibex instruction port, via `ibex_imem_router` → `ibex_to_ahb` (Boot ROM fetches only; SRAM fetches use the SRAM's own port) |
 | 1 | Ibex data port, via `ibex_to_ahb` |
 | 2 | DMA |
 
@@ -32,7 +33,7 @@ end-to-end in Vivado XSim.
 | Slave | Address |
 |---|---|
 | APB bridge | `0x2000_0000` |
-| SRAM (32 KB: code and data) | `0x3000_0000` |
+| SRAM (32 KB, dual-port: instruction-fetch port + AHB data port) | `0x3000_0000` |
 | Boot ROM | `0x0000_0000` |
 | FFT | `0x4000_0000` |
 | Ping-pong scratchpad | `0x5000_0000` |

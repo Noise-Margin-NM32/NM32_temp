@@ -28,9 +28,14 @@
 //==========================================================================
 // Project : NM32 "KAVACH" SoC (Noise Margin)
 // Module  : SRAM_1024x32_ahb_wrapper
-// Purpose : 32 KB on-chip SRAM, AHB slave 1 @ 0x3000_0000. Holds the main
-//           application (.text copied from SPI flash by the bootloader),
-//           .data/.bss and the stack (see firmware/sections.ld).
+// Purpose : 32 KB on-chip dual-port SRAM, AHB slave 1 @ 0x3000_0000. Holds
+//           the main application (.text copied from SPI flash by the
+//           bootloader), .data/.bss and the stack (see firmware/sections.ld).
+// Ports   : A - read-only instruction-fetch port (i_en/i_addr/i_rdata),
+//               driven directly by ibex_imem_router, bypassing AHB.
+//               i_addr is registered when i_en is high; i_rdata is valid
+//               the following cycle.
+//           B - AHB slave (data reads/writes, bootloader copy, DMA).
 // Clocks  : HCLK (system clk)
 // Notes   : - Behavioural 8192x32 array (not the EF_SRAM macro despite the
 //             name, which is kept so the instance/ports stay stable).
@@ -63,7 +68,12 @@ module SRAM_1024x32_ahb_wrapper #(parameter AW = 12) (
     input wire [31:0]       HWDATA,
     input wire [2:0]        HSIZE,
     output wire             HREADYOUT,
-    output wire [31:0]      HRDATA
+    output wire [31:0]      HRDATA,
+
+    // Port A: instruction fetch (read-only)
+    input  wire             i_en,
+    input  wire [31:0]      i_addr,
+    output wire [31:0]      i_rdata
 
 );
 
@@ -134,5 +144,14 @@ module SRAM_1024x32_ahb_wrapper #(parameter AW = 12) (
     // 4. Read: combinational from the registered address (0 wait states)
     // ---------------------------------------------------------------------
     assign HRDATA = (r_active && !r_hwrite) ? mem[word_addr] : 32'h0;
+
+    // ---------------------------------------------------------------------
+    // 5. Port A: instruction fetch (registered address, 1-cycle latency)
+    // ---------------------------------------------------------------------
+    reg [12:0] r_iaddr;
+    always @(posedge HCLK) begin
+        if (i_en) r_iaddr <= i_addr[14:2];
+    end
+    assign i_rdata = mem[r_iaddr];
 
 endmodule

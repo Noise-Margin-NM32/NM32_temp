@@ -725,19 +725,45 @@ ibex_core #(
     .core_busy_o()
 );
 
-// Instruction Memory Wrapper
-ibex_to_ahb imem_wrapper (
+// Instruction path split (Harvard-style): fetches from SRAM 0x3000_xxxx go
+// straight to the SRAM's port A; everything else (Boot ROM) goes over AHB.
+wire        imem_ahb_req, imem_ahb_gnt, imem_ahb_rvalid, imem_ahb_err;
+wire [31:0] imem_ahb_rdata;
+wire        imem_en;
+wire [31:0] imem_addr, imem_rdata;
+
+ibex_imem_router imem_router (
     .clk_i(clk),
     .rst_ni(rstn),
     .req_i(instr_req),
+    .addr_i(instr_addr),
     .gnt_o(instr_gnt),
+    .rvalid_o(instr_rvalid),
+    .rdata_o(instr_rdata),
+    .err_o(instr_err),
+    .ahb_req_o(imem_ahb_req),
+    .ahb_gnt_i(imem_ahb_gnt),
+    .ahb_rvalid_i(imem_ahb_rvalid),
+    .ahb_rdata_i(imem_ahb_rdata),
+    .ahb_err_i(imem_ahb_err),
+    .imem_en_o(imem_en),
+    .imem_addr_o(imem_addr),
+    .imem_rdata_i(imem_rdata)
+);
+
+// Instruction Memory Wrapper (AHB master 0: non-SRAM fetches only)
+ibex_to_ahb imem_wrapper (
+    .clk_i(clk),
+    .rst_ni(rstn),
+    .req_i(imem_ahb_req),
+    .gnt_o(imem_ahb_gnt),
     .addr_i(instr_addr),
     .we_i(1'b0),
     .be_i(4'b1111),
     .wdata_i(32'b0),
-    .rvalid_o(instr_rvalid),
-    .rdata_o(instr_rdata),
-    .err_o(instr_err),
+    .rvalid_o(imem_ahb_rvalid),
+    .rdata_o(imem_ahb_rdata),
+    .err_o(imem_ahb_err),
     
     .HADDR(ibex_imem_haddr),
     .HTRANS(ibex_imem_htrans),
@@ -903,7 +929,10 @@ SRAM_1024x32_ahb_wrapper sram0 (
     .HWDATA(sram_HWDATA),
     .HSIZE(sram_HSIZE),
     .HREADYOUT(sram_HREADYOUT),
-    .HRDATA(sram_HRDATA)
+    .HRDATA(sram_HRDATA),
+    .i_en(imem_en),
+    .i_addr(imem_addr),
+    .i_rdata(imem_rdata)
 );
 
 wire i2s_rx_fifo_empty;

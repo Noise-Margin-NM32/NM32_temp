@@ -49,6 +49,10 @@ To achieve the 100% intended dataflow, we need to implement the following:
 4. **General Peripherals (GPIO, Watchdog):** Integrate these existing IPs into the AHB/APB bus and map their registers.
 5. **Filtration Algorithm:** Write the actual C code for the audio filtration process that sits between the FFT and IFFT phases.
 
+## Resolved (2026-10-05)
+- **Dual-port SRAM.** The SRAM has a second, read-only port wired straight to the Ibex instruction interface through `ibex_imem_router` (`NM32_top_temp.srcs/sources_1/new/ibex_imem_router.sv`). Fetches from `0x3000_xxxx` take one cycle and never use AHB. Boot ROM fetches still go through `ibex_to_ahb` (master 0). The router grants an SRAM fetch only when no AHB fetch is outstanding, so responses stay in order. The full run now ends at ~53.2 ms (was ~61.5 ms).
+- **Full-scale peaks and distortion.** These came from the Hamming window: `cos_fp_q30` computed x^4 in int64 and overflowed for angles above ~1.7 rad, which corrupted the middle of the window. The window is now built from `fft_twiddles` (exact, periodic Hamming). Tone-only hops went from ~2000 RMS error to 285-590 RMS, and the output peak dropped from 32768 to 18148.
+
 ## Resolved (2026-10-03)
 - "Frames 0-6 identical": not an RTL bug. The old `audio_in.txt` repeated every 32 samples, so every 256-hop window was identical. Replaced by a 4096-sample non-periodic stimulus from `tools/gen_audio_in.py` (tone at bin 20.3 + siren sweep bins 50-60 from sample 1536); `tb.sv` input memory enlarged to 4096. All 8 frames now differ.
 - The stray `0x0000` RX sample was a genuine zero crossing of the old sine input.
@@ -57,4 +61,4 @@ To achieve the 100% intended dataflow, we need to implement the following:
 
 ## Open
 - Firmware still polls; CLIC interrupt handlers, watchdog kick and GPIO driver are not written yet.
-- `audio_out` peaks at full scale (-32768) at the siren onset; check OLA gain/saturation.
+- Siren suppression is weaker than the per-bin estimate above. Fitting the tone out of the output leaves 4000-5400 RMS in the last two hops, against an 8100 RMS siren input (about 4-6 dB). It needs mask tuning and a longer run, ideally with a trained template.

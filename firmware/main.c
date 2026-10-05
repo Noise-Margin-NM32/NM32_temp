@@ -176,47 +176,21 @@ static int16_t pow25_q15(int16_t x_q15) {
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Hamming window generation - one-time Taylor cos, then discard             */
+/*  Hamming window (periodic, N = 512), from the FFT twiddle table            */
 /* -------------------------------------------------------------------------- */
 
-/* We compute cos via Taylor series in fixed-point one-time at boot.
- * Result is baked to Q15 and never touched again. */
-static int32_t cos_fp_q30(int32_t angle_q16) {
-    /* Very rough fixed-point cos, adequate for Hamming window shape.
-     * angle_q16 is in Q16 units, representing radians. */
-    /* Reduce to [-pi, pi] */
-    const int32_t TWO_PI_Q16 = 411774;  /* 2*pi * 65536 */
-    const int32_t PI_Q16     = 205887;  /* pi   * 65536 */
-    while (angle_q16 >  PI_Q16) angle_q16 -= TWO_PI_Q16;
-    while (angle_q16 < -PI_Q16) angle_q16 += TWO_PI_Q16;
-
-    /* Taylor: cos(x) = 1 - x^2/2 + x^4/24 - x^6/720 */
-    int64_t x_q30 = ((int64_t)angle_q16 * angle_q16); /* angle^2, in Q32 */
-    x_q30 >>= 2;  /* now Q30 */
-    int64_t term1 = x_q30 >> 1;              /* x^2/2 */
-    int64_t x4    = (x_q30 * x_q30) >> 30;   /* x^4 in Q30 */
-    int64_t term2 = x4 / 24;
-    int64_t x6    = (x4 * x_q30) >> 30;
-    int64_t term3 = x6 / 720;
-
-    int64_t result = ((int64_t)1 << 30) - term1 + term2 - term3;
-    return (int32_t)result;
-}
-
+/* w[i] = 0.54 - 0.46 * cos(2*pi*i/512). fft_twiddles[k][31:16] holds
+ * cos(2*pi*k/512) in Q15 for k < 256, and cos(2*pi*(k+256)/512) = -cos(..),
+ * so no runtime cos is needed. (The old Taylor-series cos overflowed int64
+ * for angles above ~1.7 rad, corrupting the middle of the window.) */
 static void init_hamming_window(void) {
-    /* w[i] = 0.54 - 0.46 * cos(2*pi*i/(N-1))
-     * In Q15: w_q15 = 0.54*32768 - 0.46*32768*cos_q30 >> 15  */
     for (int i = 0; i < N_FFT; i++) {
-        int32_t angle_q16 = (int32_t)(((int64_t)411774 * i) / (N_FFT - 1)); /* 2*pi*i/(N-1) in Q16 */
-        int32_t c_q30     = cos_fp_q30(angle_q16);
-        /* 0.54 in Q30 = 579820748, 0.46 in Q30 = 493921050
-         * hamming = 0.54 - 0.46*c   (result in Q30 range)
-         * then downshift to Q15 */
-        int64_t val_q30 = 579820748LL - (((int64_t)493921050 * c_q30) >> 30);
-        int32_t val_q15 = (int32_t)(val_q30 >> 15);
-        if (val_q15 >  32767) val_q15 =  32767;
-        if (val_q15 < -32768) val_q15 = -32768;
-        hamming_q15[i] = (int16_t)val_q15;
+        int32_t c = (int16_t)(fft_twiddles[i & (HOP - 1)] >> 16);   /* Q15 */
+        if (i >= HOP) c = -c;
+        /* 0.54 and 0.46 in Q15 */
+        int32_t w = 17695 - ((15073 * c) >> 15);
+        if (w > 32767) w = 32767;
+        hamming_q15[i] = (int16_t)w;
     }
 }
 

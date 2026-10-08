@@ -224,7 +224,7 @@ wire [1:0]  boot_rom_HRESP;
  wire [ 31:0] spi_PRDATA;
  wire         spi_PREADY;
  wire         spi_PSLVERR;//???? What to tie off to
- wire [ 1:0]  spi_events;//????? WHat to tie off to 
+ wire [ 1:0]  spi_events; //spi_events[1] goes high at end of transmission. used as interrupt
 
 
 //  wire [1-1:0] sdo;
@@ -557,7 +557,7 @@ picorv32 #(
     .REGS_INIT_ZERO(1),
     .MASKED_IRQ(32'h0000_0000),
     .LATCHED_IRQ(32'hffff_ffff),
-    .PROGADDR_RESET(32'h0000_0080),
+    .PROGADDR_RESET(32'h0000_0000),
     .PROGADDR_IRQ(32'h0000_0010)
 ) cpu (
     .clk(clk),
@@ -591,7 +591,8 @@ assign clic_intr_src[2] = fft_irq;
 assign clic_intr_src[3] = ifft_irq;
 assign clic_intr_src[4] = dma_irq;
 assign clic_intr_src[5] = gpio_IRQ;
-assign clic_intr_src[15:6] = 10'b0;
+assign clic_intr_src[6] = spi_events[1]; // 👈 SPI End of Transmission (EOT)
+assign clic_intr_src[15:7] = 9'b0;    
 
 clic_ahb clic_inst (
     .hclk(clk),

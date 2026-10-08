@@ -107,8 +107,8 @@ module clic_ahb (
         if (reg_read_phase) begin
             case (reg_addr_latched)
                 7'h20:   hrdata_o = {16'h0, ip_reg}; // Zero-pad to match 32-bit CPU bus
-                7'h24:   hrdata_o = {16'h0, ie_reg}; 
-                7'h28:   hrdata_o = {29'h0, threshold_reg};
+                7'h21:   hrdata_o = {16'h0, ie_reg}; 
+                7'h22:   hrdata_o = {29'h0, threshold_reg};
                 default: begin
                     if (reg_addr_latched < 16) begin
                         hrdata_o = {29'h0, prio_reg[reg_addr_latched]};

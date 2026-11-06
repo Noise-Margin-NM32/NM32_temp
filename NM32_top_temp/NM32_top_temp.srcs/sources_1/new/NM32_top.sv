@@ -47,8 +47,12 @@ module nm32_top(
 /////////////////////////////////           Wires and Parameters           ////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-localparam NUM_ARB_MSTS = 4; // Number of AHB masters in the system
-localparam DEF_ARB_MST  = 0; // Default AHB master to be granted bus access when no other masters are requesting
+// Harvard bus architecture:
+//   I-bus (Instruction AHB-Lite): single master (CPU fetch) -> u_ibus_decoder
+//                                 -> Boot ROM (I port) / SRAM port A
+//   D-bus (Data AHB): masters below -> ahb_decoder_and_arbiter -> slaves
+localparam NUM_ARB_MSTS = 3; // D-bus masters: 0 = CPU data, 1 = DMA RX, 2 = DMA TX
+localparam DEF_ARB_MST  = 0; // CPU data port is the default (parked) D-bus master
 localparam NUM_SLVS = 7;
 
 localparam APB_NUM_SLVS = 2;
@@ -78,17 +82,24 @@ localparam [NUM_APB_SLAVES-1:0][31:0] SLAVE_ADDR_END   = {32'h2006_FFFF, 32'h200
 // wire pclk; // For APB peripherals
 reg pclk_reg;
 
-// Ibex Instruction Memory - AHB bus wires
-wire [31:0] ibex_imem_haddr;
-wire [1:0]  ibex_imem_htrans;
-wire [2:0]  ibex_imem_hsize;
-wire        ibex_imem_hwrite;
-wire [31:0] ibex_imem_hwdata;
-wire        ibex_imem_hready;
-wire [31:0] ibex_imem_hrdata;
-wire [1:0]  ibex_imem_hresp;
-wire        ibex_imem_hgrant;
-wire        ibex_imem_hbusreq;
+// Instruction AHB-Lite bus (I-bus) - single master, no arbitration
+localparam IBUS_NUM_SLVS = 2;   // 0 = Boot ROM, 1 = SRAM port A
+localparam [32*IBUS_NUM_SLVS-1:0] IBUS_ADDR_LOW_FLAT  = {32'h3000_0000, 32'h0000_0000};
+localparam [32*IBUS_NUM_SLVS-1:0] IBUS_ADDR_HIGH_FLAT = {32'h3000_FFFF, 32'h0000_FFFF};
+
+wire [31:0] imem_haddr;
+wire [1:0]  imem_htrans;
+wire [2:0]  imem_hsize;
+wire        imem_hwrite;
+wire [31:0] imem_hwdata;
+wire        imem_hready;     // I-bus HREADY (from u_ibus_decoder)
+wire [31:0] imem_hrdata;
+wire [1:0]  imem_hresp;
+wire [IBUS_NUM_SLVS-1:0]       imem_hsel;
+wire [IBUS_NUM_SLVS-1:0]       imem_slv_hreadyout;
+wire [IBUS_NUM_SLVS*2-1:0]     imem_slv_hresp;
+wire [IBUS_NUM_SLVS*32-1:0]    imem_slv_hrdata;
+wire        imem_hready_mux_unused;
 
 // Ibex Data Memory - AHB bus wires
 wire [31:0] ibex_dmem_haddr;
@@ -250,31 +261,21 @@ end
 assign pclk = pclk_reg;
 
 
-assign mst_hbusreq[0] = ibex_imem_hbusreq;
-assign mst_htrans[0] = ibex_imem_htrans;
-assign mst_haddr[0] = ibex_imem_haddr;
-assign mst_hwrite[0] = ibex_imem_hwrite;
-assign mst_hsize[0] = ibex_imem_hsize;
-assign mst_hwdata[0] = ibex_imem_hwdata;
-assign ibex_imem_hgrant = mst_hgrant[0];
-assign ibex_imem_hready = mst_hready_out;
-assign ibex_imem_hrdata = mst_hrdata_out;
-assign ibex_imem_hresp = mst_hresp_out;
-
-assign mst_hbusreq[1] = ibex_dmem_hbusreq;
-assign mst_htrans[1] = ibex_dmem_htrans;
-assign mst_haddr[1] = ibex_dmem_haddr;
-assign mst_hwrite[1] = ibex_dmem_hwrite;
-assign mst_hsize[1] = ibex_dmem_hsize;
-assign mst_hwdata[1] = ibex_dmem_hwdata;
-assign ibex_dmem_hgrant = mst_hgrant[1];
+// D-bus master 0: CPU data port (default master)
+assign mst_hbusreq[0] = ibex_dmem_hbusreq;
+assign mst_htrans[0] = ibex_dmem_htrans;
+assign mst_haddr[0] = ibex_dmem_haddr;
+assign mst_hwrite[0] = ibex_dmem_hwrite;
+assign mst_hsize[0] = ibex_dmem_hsize;
+assign mst_hwdata[0] = ibex_dmem_hwdata;
+assign ibex_dmem_hgrant = mst_hgrant[0];
 assign ibex_dmem_hready = mst_hready_out;
 assign ibex_dmem_hrdata = mst_hrdata_out;
 assign ibex_dmem_hresp = mst_hresp_out;
 
 generate
     genvar i;
-    for(i = 4; i<15; i = i+1) begin
+    for(i = NUM_ARB_MSTS; i<15; i = i+1) begin
         assign mst_hbusreq[i] = 1'b0;
 //         assign mst_hlock[i] = 1'b0; //changed by agy
         assign mst_htrans[i] = 2'b00; //changed by agy
@@ -574,19 +575,19 @@ dma_controller dma_rx_inst (
     .PREADY(dma_rx_PREADY),
     
     // AHB Master Interface
-    .HGRANT(mst_hgrant[2]),
-    .HBUSREQ(mst_hbusreq[2]),
-    .HADDR(mst_haddr[2]),
-    .HTRANS(mst_htrans[2]),
-    .HWRITE(mst_hwrite[2]),
+    .HGRANT(mst_hgrant[1]),
+    .HBUSREQ(mst_hbusreq[1]),
+    .HADDR(mst_haddr[1]),
+    .HTRANS(mst_htrans[1]),
+    .HWRITE(mst_hwrite[1]),
     .HREADY(mst_hready_out),
     .irq(dma_rx_irq),
     .HRDATA(mst_hrdata_out),
-    .HWDATA(mst_hwdata[2]),
+    .HWDATA(mst_hwdata[1]),
     .check(dma_rx_check),
     .DREQ(~i2s_rx_fifo_empty)
 );
-assign mst_hsize[2] = 3'b010; // 32-bit transfers
+assign mst_hsize[1] = 3'b010; // 32-bit transfers
 
 dma_controller dma_tx_inst (
     .PCLK(clk),
@@ -604,19 +605,19 @@ dma_controller dma_tx_inst (
     .PREADY(dma_tx_PREADY),
     
     // AHB Master Interface
-    .HGRANT(mst_hgrant[3]),
-    .HBUSREQ(mst_hbusreq[3]),
-    .HADDR(mst_haddr[3]),
-    .HTRANS(mst_htrans[3]),
-    .HWRITE(mst_hwrite[3]),
+    .HGRANT(mst_hgrant[2]),
+    .HBUSREQ(mst_hbusreq[2]),
+    .HADDR(mst_haddr[2]),
+    .HTRANS(mst_htrans[2]),
+    .HWRITE(mst_hwrite[2]),
     .HREADY(mst_hready_out),
     .irq(dma_tx_irq),
     .HRDATA(mst_hrdata_out),
-    .HWDATA(mst_hwdata[3]),
+    .HWDATA(mst_hwdata[2]),
     .check(dma_tx_check),
     .DREQ(~i2s_tx_fifo_full)
 );
-assign mst_hsize[3] = 3'b010; // 32-bit transfers
+assign mst_hsize[2] = 3'b010; // 32-bit transfers
 
 //////////////////////////////////////////////////////////////////////////////// INSTANTIATIONS ////////////////////////////////////////////////////////////////////////
 // CLIC Output processing
@@ -725,56 +726,57 @@ ibex_core #(
     .core_busy_o()
 );
 
-// Instruction path split (Harvard-style): fetches from SRAM 0x3000_xxxx go
-// straight to the SRAM's port A; everything else (Boot ROM) goes over AHB.
-wire        imem_ahb_req, imem_ahb_gnt, imem_ahb_rvalid, imem_ahb_err;
-wire [31:0] imem_ahb_rdata;
-wire        imem_en;
-wire [31:0] imem_addr, imem_rdata;
-
-ibex_imem_router imem_router (
-    .clk_i(clk),
-    .rst_ni(rstn),
-    .req_i(instr_req),
-    .addr_i(instr_addr),
-    .gnt_o(instr_gnt),
-    .rvalid_o(instr_rvalid),
-    .rdata_o(instr_rdata),
-    .err_o(instr_err),
-    .ahb_req_o(imem_ahb_req),
-    .ahb_gnt_i(imem_ahb_gnt),
-    .ahb_rvalid_i(imem_ahb_rvalid),
-    .ahb_rdata_i(imem_ahb_rdata),
-    .ahb_err_i(imem_ahb_err),
-    .imem_en_o(imem_en),
-    .imem_addr_o(imem_addr),
-    .imem_rdata_i(imem_rdata)
-);
-
-// Instruction Memory Wrapper (AHB master 0: non-SRAM fetches only)
+// ---------------------------------------------------------------------------
+// Instruction AHB-Lite bus (I-bus)
+//   CPU fetch port -> ibex_to_ahb (sole master, HGRANT tied high)
+//   -> u_ibus_decoder -> slave 0: Boot ROM I port  (0x0000_0000-0x0000_FFFF)
+//                        slave 1: SRAM port A      (0x3000_0000-0x3000_FFFF)
+//   Unmapped fetch addresses get the decoder's 2-cycle AHB ERROR response.
+// ---------------------------------------------------------------------------
 ibex_to_ahb imem_wrapper (
     .clk_i(clk),
     .rst_ni(rstn),
-    .req_i(imem_ahb_req),
-    .gnt_o(imem_ahb_gnt),
+    .req_i(instr_req),
+    .gnt_o(instr_gnt),
     .addr_i(instr_addr),
     .we_i(1'b0),
     .be_i(4'b1111),
     .wdata_i(32'b0),
-    .rvalid_o(imem_ahb_rvalid),
-    .rdata_o(imem_ahb_rdata),
-    .err_o(imem_ahb_err),
-    
-    .HADDR(ibex_imem_haddr),
-    .HTRANS(ibex_imem_htrans),
-    .HSIZE(ibex_imem_hsize),
-    .HWRITE(ibex_imem_hwrite),
-    .HWDATA(ibex_imem_hwdata),
-    .HRDATA(ibex_imem_hrdata),
-    .HREADY(ibex_imem_hready),
-    .HRESP(ibex_imem_hresp),
-    .HBUSREQ(ibex_imem_hbusreq),
-    .HGRANT(ibex_imem_hgrant)
+    .rvalid_o(instr_rvalid),
+    .rdata_o(instr_rdata),
+    .err_o(instr_err),
+
+    .HADDR(imem_haddr),
+    .HTRANS(imem_htrans),
+    .HSIZE(imem_hsize),
+    .HWRITE(imem_hwrite),
+    .HWDATA(imem_hwdata),
+    .HRDATA(imem_hrdata),
+    .HREADY(imem_hready),
+    .HRESP(imem_hresp),
+    .HBUSREQ(),
+    .HGRANT(1'b1)
+);
+
+ahb_decoder #(
+    .NUM_ARB_MSTS(1),
+    .NUM_SLVS(IBUS_NUM_SLVS),
+    .ADDR_LOW_FLAT(IBUS_ADDR_LOW_FLAT),
+    .ADDR_HIGH_FLAT(IBUS_ADDR_HIGH_FLAT)
+) u_ibus_decoder (
+    .hresetn(rstn),
+    .hclk(clk),
+    .master_sel(4'd0),
+    .sel_haddr(imem_haddr),
+    .sel_htrans(imem_htrans),
+    .slv_hsel(imem_hsel),
+    .hready(imem_hready),
+    .slv_hready_in_v(imem_slv_hreadyout),
+    .slv_hresp_flat(imem_slv_hresp),
+    .slv_hrdata_flat(imem_slv_hrdata),
+    .slv_hready_mux(imem_hready_mux_unused),
+    .slv_hresp_mux(imem_hresp),
+    .slv_hrdata_mux(imem_hrdata)
 );
 
 // Data Memory Wrapper
@@ -930,9 +932,18 @@ SRAM_1024x32_ahb_wrapper sram0 (
     .HSIZE(sram_HSIZE),
     .HREADYOUT(sram_HREADYOUT),
     .HRDATA(sram_HRDATA),
-    .i_en(imem_en),
-    .i_addr(imem_addr),
-    .i_rdata(imem_rdata)
+    .HRESP(),                       // always OKAY (slv_hresp_v[1] tied)
+    // Port A: I-bus slave 1
+    .I_HSEL(imem_hsel[1]),
+    .I_HADDR(imem_haddr),
+    .I_HTRANS(imem_htrans),
+    .I_HWRITE(imem_hwrite),
+    .I_HSIZE(imem_hsize),
+    .I_HWDATA(imem_hwdata),
+    .I_HREADY(imem_hready),
+    .I_HREADYOUT(imem_slv_hreadyout[1]),
+    .I_HRDATA(imem_slv_hrdata[63:32]),
+    .I_HRESP(imem_slv_hresp[3:2])
 );
 
 wire i2s_rx_fifo_empty;
@@ -987,7 +998,16 @@ boot_rom_ahb boot_rom (
     .HREADY(boot_rom_HREADY),
     .HREADYOUT(boot_rom_HREADYOUT),
     .HRDATA(boot_rom_HRDATA),
-    .HRESP(boot_rom_HRESP)
+    .HRESP(boot_rom_HRESP),
+    // I-bus slave 0
+    .I_HSEL(imem_hsel[0]),
+    .I_HADDR(imem_haddr),
+    .I_HTRANS(imem_htrans),
+    .I_HWRITE(imem_hwrite),
+    .I_HREADY(imem_hready),
+    .I_HREADYOUT(imem_slv_hreadyout[0]),
+    .I_HRDATA(imem_slv_hrdata[31:0]),
+    .I_HRESP(imem_slv_hresp[1:0])
 );
 
 EF_GPIO8_APB gpio_apb_inst (

@@ -13,28 +13,38 @@ end-to-end in Vivado XSim.
 |---|---|
 | Ibex boot (Boot ROM, then SPI flash, then SRAM) | Working |
 | FFT, mask and IFFT pipeline, I2S RX and TX, DMA | Working. The sim ends with `Simulation successful` (~53.2 ms). `tools/check_fft.py` PASS |
-| Dual-port SRAM (separate instruction/data paths) | Working. Ibex fetches from SRAM use a dedicated port via `ibex_imem_router`; data and DMA stay on AHB |
+| Harvard bus architecture (separate instruction and data AHB buses) | Instruction AHB-Lite bus (Boot ROM + SRAM port A) and data AHB bus (CPU data + DMA). See Architecture |
 | Audio quality | Tone reconstructed within about -25 to -31 dB, no clipping (peak 18148). Siren cut is only about 4-6 dB on the 8-frame test |
 | CLIC interrupt controller, GPIO, watchdog (EF_WDT32) | Integrated in RTL. Firmware still polls instead of using interrupts |
 | Fresh-clone simulation in Vivado 2025.2 | Verified: no errors, traps or watchdog stops |
 
 ## Architecture
 
-**AHB masters**, which share one arbiter and one decoder:
+The SoC uses a **Harvard bus architecture**: two independent AHB buses.
+
+**Instruction AHB-Lite bus (I-bus).** Single master, no arbiter. `u_ibus_decoder` is an `ahb_decoder` instance.
+
+| | Source / target | Address |
+|---|---|---|
+| Master | Ibex instruction port, via `ibex_to_ahb` (`imem_wrapper`, HGRANT tied high) | |
+| Slave 0 | Boot ROM, I port | `0x0000_0000` |
+| Slave 1 | SRAM port A (read-only AHB-Lite) | `0x3000_0000` |
+
+**Data AHB bus (D-bus).** These masters share `ahb_decoder_and_arbiter`:
 
 | Master | Source |
 |---|---|
-| 0 | Ibex instruction port, via `ibex_imem_router` → `ibex_to_ahb` (Boot ROM fetches only; SRAM fetches use the SRAM's own port) |
-| 1 | Ibex data port, via `ibex_to_ahb` |
-| 2 | DMA |
+| 0 | Ibex data port, via `ibex_to_ahb` (default master) |
+| 1 | DMA RX |
+| 2 | DMA TX |
 
-**AHB slaves:**
+**D-bus slaves:**
 
 | Slave | Address |
 |---|---|
 | APB bridge | `0x2000_0000` |
-| SRAM (32 KB, dual-port: instruction-fetch port + AHB data port) | `0x3000_0000` |
-| Boot ROM | `0x0000_0000` |
+| SRAM port B (32 KB dual-port SRAM; port A is on the I-bus) | `0x3000_0000` |
+| Boot ROM, D port (read-only, for constants) | `0x0000_0000` |
 | FFT | `0x4000_0000` |
 | Ping-pong scratchpad | `0x5000_0000` |
 | IFFT | `0x6000_0000` |

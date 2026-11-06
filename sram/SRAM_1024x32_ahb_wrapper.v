@@ -31,11 +31,10 @@
 // Purpose : 32 KB on-chip dual-port SRAM, AHB slave 1 @ 0x3000_0000. Holds
 //           the main application (.text copied from SPI flash by the
 //           bootloader), .data/.bss and the stack (see firmware/sections.ld).
-// Ports   : A - read-only instruction-fetch port (i_en/i_addr/i_rdata),
-//               driven directly by ibex_imem_router, bypassing AHB.
-//               i_addr is registered when i_en is high; i_rdata is valid
-//               the following cycle.
-//           B - AHB slave (data reads/writes, bootloader copy, DMA).
+// Ports   : A - AHB-Lite slave, read-only, on the Instruction AHB bus
+//               (I-bus, slave 1). CPU instruction fetches only.
+//           B - AHB slave on the Data AHB bus (D-bus, slave 1): data
+//               reads/writes, bootloader copy, DMA.
 // Clocks  : HCLK (system clk)
 // Notes   : - Behavioural 8192x32 array (not the EF_SRAM macro despite the
 //             name, which is kept so the instance/ports stay stable).
@@ -57,8 +56,8 @@ module SRAM_1024x32_ahb_wrapper #(parameter AW = 12) (
     inout VGND,
 `endif
     // AHB Slave ports
-    input                   HCLK,
-    input                   HRESETn,
+    input  wire             HCLK,
+    input  wire             HRESETn,
     
     input wire              HSEL,
     input wire [31:0]       HADDR,
@@ -69,12 +68,19 @@ module SRAM_1024x32_ahb_wrapper #(parameter AW = 12) (
     input wire [2:0]        HSIZE,
     output wire             HREADYOUT,
     output wire [31:0]      HRDATA,
+    output wire [1:0]       HRESP,
 
-    // Port A: instruction fetch (read-only)
-    input  wire             i_en,
-    input  wire [31:0]      i_addr,
-    output wire [31:0]      i_rdata
-
+    // Port A: Instruction AHB-Lite slave (read-only)
+    input  wire             I_HSEL,
+    input  wire [31:0]      I_HADDR,
+    input  wire [1:0]       I_HTRANS,
+    input  wire             I_HWRITE,
+    input  wire [2:0]       I_HSIZE,
+    input  wire [31:0]      I_HWDATA,
+    input  wire             I_HREADY,
+    output wire             I_HREADYOUT,
+    output wire [31:0]      I_HRDATA,
+    output wire [1:0]       I_HRESP
 );
 
     // ---------------------------------------------------------------------
@@ -104,6 +110,7 @@ module SRAM_1024x32_ahb_wrapper #(parameter AW = 12) (
     end
     
     assign HREADYOUT = 1'b1;   // never stalls
+    assign HRESP     = 2'b00;  // always OKAY
 
     // ---------------------------------------------------------------------
     // 2. Storage: 32 KB (8192 x 32), zero-initialised for simulation
@@ -146,12 +153,29 @@ module SRAM_1024x32_ahb_wrapper #(parameter AW = 12) (
     assign HRDATA = (r_active && !r_hwrite) ? mem[word_addr] : 32'h0;
 
     // ---------------------------------------------------------------------
-    // 5. Port A: instruction fetch (registered address, 1-cycle latency)
+    // 5. Port A: AHB-Lite instruction slave (read-only, 0 wait states)
+    //    Address phase latched on I_HREADY; data returned combinationally
+    //    in the data phase. Writes are ignored. Idle/non-selected data
+    //    phases return a NOP (0x00000013).
     // ---------------------------------------------------------------------
-    reg [12:0] r_iaddr;
-    always @(posedge HCLK) begin
-        if (i_en) r_iaddr <= i_addr[14:2];
+    reg [31:0] r_ihaddr;
+    reg        r_iactive;
+
+    wire ahb_iactive = I_HSEL && I_HREADY && I_HTRANS[1] && !I_HWRITE;
+
+    always @(posedge HCLK or negedge HRESETn) begin
+        if (!HRESETn) begin
+            r_ihaddr  <= 32'h0;
+            r_iactive <= 1'b0;
+        end else if (I_HREADY) begin
+            r_ihaddr  <= I_HADDR;
+            r_iactive <= ahb_iactive;
+        end
     end
-    assign i_rdata = mem[r_iaddr];
+
+    wire [12:0] i_word_addr = r_ihaddr[14:2];
+    assign I_HREADYOUT = 1'b1;
+    assign I_HRESP     = 2'b00;
+    assign I_HRDATA    = r_iactive ? mem[i_word_addr] : 32'h00000013;
 
 endmodule

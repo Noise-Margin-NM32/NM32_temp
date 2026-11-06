@@ -50,7 +50,7 @@ To achieve the 100% intended dataflow, we need to implement the following:
 5. **Filtration Algorithm:** Write the actual C code for the audio filtration process that sits between the FFT and IFFT phases.
 
 ## Resolved (2026-10-05)
-- **Dual-port SRAM.** The SRAM has a second, read-only port wired straight to the Ibex instruction interface through `ibex_imem_router` (`NM32_top_temp.srcs/sources_1/new/ibex_imem_router.sv`). Fetches from `0x3000_xxxx` take one cycle and never use AHB. Boot ROM fetches still go through `ibex_to_ahb` (master 0). The router grants an SRAM fetch only when no AHB fetch is outstanding, so responses stay in order. The full run now ends at ~53.2 ms (was ~61.5 ms).
+- **Harvard bus architecture.** Instruction fetches use their own AHB-Lite bus. The path is Ibex instruction port, then `ibex_to_ahb` as the only master, then `u_ibus_decoder`, then either the Boot ROM I port or SRAM port A. Port A is now a full read-only AHB-Lite slave. Data accesses and DMA use the separate data AHB bus, where the CPU data port is master 0 and the default master, DMA RX is master 1, and DMA TX is master 2. The Boot ROM is dual-ported: its I port serves fetches and its D port serves data reads. `ibex_imem_router` has been removed. Both memories latch addresses only on NONSEQ/SEQ, and idle data phases return a NOP.
 - **Full-scale peaks and distortion.** These came from the Hamming window: `cos_fp_q30` computed x^4 in int64 and overflowed for angles above ~1.7 rad, which corrupted the middle of the window. The window is now built from `fft_twiddles` (exact, periodic Hamming). Tone-only hops went from ~2000 RMS error to 285-590 RMS, and the output peak dropped from 32768 to 18148.
 
 ## Resolved (2026-10-03)

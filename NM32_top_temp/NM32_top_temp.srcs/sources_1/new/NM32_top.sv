@@ -101,20 +101,19 @@ wire [IBUS_NUM_SLVS*2-1:0]     imem_slv_hresp;
 wire [IBUS_NUM_SLVS*32-1:0]    imem_slv_hrdata;
 wire        imem_hready_mux_unused;
 
-// Ibex Data Memory - AHB bus wires
-wire [31:0] ibex_dmem_haddr;
-wire [1:0]  ibex_dmem_htrans;
-wire [2:0]  ibex_dmem_hsize;
-wire        ibex_dmem_hwrite;
-wire [31:0] ibex_dmem_hwdata;
-wire        ibex_dmem_hready;
-wire [31:0] ibex_dmem_hrdata;
-wire [1:0]  ibex_dmem_hresp;
-wire        ibex_dmem_hgrant;
-wire        ibex_dmem_hbusreq;
+// CPU data port - AHB bus wires (D-bus master 0)
+wire [31:0] cpu_dmem_haddr;
+wire [1:0]  cpu_dmem_htrans;
+wire [2:0]  cpu_dmem_hsize;
+wire        cpu_dmem_hwrite;
+wire [31:0] cpu_dmem_hwdata;
+wire        cpu_dmem_hready;
+wire [31:0] cpu_dmem_hrdata;
+wire [1:0]  cpu_dmem_hresp;
+wire        cpu_dmem_hgrant;
+wire        cpu_dmem_hbusreq;
 
 
-// Ibex native signals handled directly inside wrappers
 
 
 // Arbiter wires
@@ -262,16 +261,16 @@ assign pclk = pclk_reg;
 
 
 // D-bus master 0: CPU data port (default master)
-assign mst_hbusreq[0] = ibex_dmem_hbusreq;
-assign mst_htrans[0] = ibex_dmem_htrans;
-assign mst_haddr[0] = ibex_dmem_haddr;
-assign mst_hwrite[0] = ibex_dmem_hwrite;
-assign mst_hsize[0] = ibex_dmem_hsize;
-assign mst_hwdata[0] = ibex_dmem_hwdata;
-assign ibex_dmem_hgrant = mst_hgrant[0];
-assign ibex_dmem_hready = mst_hready_out;
-assign ibex_dmem_hrdata = mst_hrdata_out;
-assign ibex_dmem_hresp = mst_hresp_out;
+assign mst_hbusreq[0] = cpu_dmem_hbusreq;
+assign mst_htrans[0] = cpu_dmem_htrans;
+assign mst_haddr[0] = cpu_dmem_haddr;
+assign mst_hwrite[0] = cpu_dmem_hwrite;
+assign mst_hsize[0] = cpu_dmem_hsize;
+assign mst_hwdata[0] = cpu_dmem_hwdata;
+assign cpu_dmem_hgrant = mst_hgrant[0];
+assign cpu_dmem_hready = mst_hready_out;
+assign cpu_dmem_hrdata = mst_hrdata_out;
+assign cpu_dmem_hresp = mst_hresp_out;
 
 generate
     genvar i;
@@ -625,139 +624,49 @@ wire        clic_irq_valid;
 wire [3:0]  clic_irq_id;
 wire [2:0]  clic_irq_level;
 
-// Instantiate Ibex
-wire        instr_req;
-wire        instr_gnt;
-wire        instr_rvalid;
-wire [31:0] instr_addr;
-wire [31:0] instr_rdata;
-wire        instr_err;
+// ---------------------------------------------------------------------------
+// CPU: NM32 3-stage pipelined RV32IM core (cpu/top_piplined.v)
+//   instr_* port = sole master of the Instruction AHB-Lite bus (I-bus)
+//   data_*  port = D-bus master 0 (default master)
+//   Resets to 0x80 (start.S: vector table at 0x00-0x7C, _start at 0x80).
+//   No interrupt input: the firmware polls; the CLIC is left for later.
+// ---------------------------------------------------------------------------
+top_piplined #(
+    .RESET_PC(32'h0000_0080)
+) u_cpu (
+    .clk(clk),
+    .rstn(rstn),
 
-wire        data_req;
-wire        data_gnt;
-wire        data_rvalid;
-wire        data_we;
-wire [3:0]  data_be;
-wire [31:0] data_addr;
-wire [31:0] data_wdata;
-wire [31:0] data_rdata;
-wire        data_err;
+    // Instruction AHB-Lite master -> I-bus
+    .instr_htrans(imem_htrans),
+    .instr_haddr(imem_haddr),
+    .instr_hwrite(imem_hwrite),
+    .instr_hsize(imem_hsize),
+    .instr_hwdata(imem_hwdata),
+    .instr_hready(imem_hready),
+    .instr_hrdata(imem_hrdata),
+    .instr_hresp(imem_hresp[0]),
 
-// Ibex register file (lives outside ibex_core; ibex_top normally wires this,
-// but this integration instantiates ibex_core directly).
-wire [4:0]  ibex_rf_raddr_a, ibex_rf_raddr_b, ibex_rf_waddr_wb;
-wire [31:0] ibex_rf_rdata_a, ibex_rf_rdata_b, ibex_rf_wdata_wb;
-wire        ibex_rf_we_wb;
-
-ibex_register_file_ff #(
-    .RV32E(0),
-    .DataWidth(32),
-    .DummyInstructions(0)
-) u_ibex_regfile (
-    .clk_i(clk),
-    .rst_ni(rstn),
-
-    .test_en_i(1'b0),
-    .dummy_instr_id_i(1'b0),
-    .dummy_instr_wb_i(1'b0),
-
-    .raddr_a_i(ibex_rf_raddr_a),
-    .rdata_a_o(ibex_rf_rdata_a),
-
-    .raddr_b_i(ibex_rf_raddr_b),
-    .rdata_b_o(ibex_rf_rdata_b),
-
-    .waddr_a_i(ibex_rf_waddr_wb),
-    .wdata_a_i(ibex_rf_wdata_wb),
-    .we_a_i(ibex_rf_we_wb)
-);
-
-ibex_core #(
-    .RV32M(ibex_pkg::RV32MFast),
-    .BranchPredictor(1),
-    .WritebackStage(1)
-) u_ibex_core (
-    .clk_i(clk),
-    .rst_ni(rstn),
-
-    .hart_id_i(32'h0),
-    .boot_addr_i(32'h0000_0000),
-
-    .instr_req_o(instr_req),
-    .instr_gnt_i(instr_gnt),
-    .instr_rvalid_i(instr_rvalid),
-    .instr_addr_o(instr_addr),
-    .instr_rdata_i(instr_rdata),
-    .instr_err_i(instr_err),
-
-    .rf_raddr_a_o(ibex_rf_raddr_a),
-    .rf_raddr_b_o(ibex_rf_raddr_b),
-    .rf_waddr_wb_o(ibex_rf_waddr_wb),
-    .rf_we_wb_o(ibex_rf_we_wb),
-    .rf_wdata_wb_ecc_o(ibex_rf_wdata_wb),
-    .rf_rdata_a_ecc_i(ibex_rf_rdata_a),
-    .rf_rdata_b_ecc_i(ibex_rf_rdata_b),
-
-    .data_req_o(data_req),
-    .data_gnt_i(data_gnt),
-    .data_rvalid_i(data_rvalid),
-    .data_we_o(data_we),
-    .data_be_o(data_be),
-    .data_addr_o(data_addr),
-    .data_wdata_o(data_wdata),
-    .data_rdata_i(data_rdata),
-    .data_err_i(data_err),
-
-    .irq_software_i(1'b0),
-    .irq_timer_i(1'b0),
-    .irq_external_i(clic_irq_valid),
-    .irq_fast_i(15'b0),
-    .irq_nm_i(1'b0),
-    .irq_pending_o(),
-    .crash_dump_o(),
-    .double_fault_seen_o(),
-    
-    .debug_req_i(1'b0),
-    .fetch_enable_i(ibex_pkg::IbexMuBiOn),
-    .mcounteren_writable_i(ibex_pkg::IbexMuBiOn),
-    .alert_minor_o(),
-    .alert_major_internal_o(),
-    .alert_major_bus_o(),
-    .core_busy_o()
+    // Data AHB master -> D-bus master 0
+    .data_hbusreq(cpu_dmem_hbusreq),
+    .data_htrans(cpu_dmem_htrans),
+    .data_haddr(cpu_dmem_haddr),
+    .data_hwrite(cpu_dmem_hwrite),
+    .data_hsize(cpu_dmem_hsize),
+    .data_hwdata(cpu_dmem_hwdata),
+    .data_hgrant(cpu_dmem_hgrant),
+    .data_hready(cpu_dmem_hready),
+    .data_hrdata(cpu_dmem_hrdata),
+    .data_hresp(cpu_dmem_hresp[0])
 );
 
 // ---------------------------------------------------------------------------
 // Instruction AHB-Lite bus (I-bus)
-//   CPU fetch port -> ibex_to_ahb (sole master, HGRANT tied high)
+//   u_cpu instr port (sole master, no arbitration)
 //   -> u_ibus_decoder -> slave 0: Boot ROM I port  (0x0000_0000-0x0000_FFFF)
 //                        slave 1: SRAM port A      (0x3000_0000-0x3000_FFFF)
 //   Unmapped fetch addresses get the decoder's 2-cycle AHB ERROR response.
 // ---------------------------------------------------------------------------
-ibex_to_ahb imem_wrapper (
-    .clk_i(clk),
-    .rst_ni(rstn),
-    .req_i(instr_req),
-    .gnt_o(instr_gnt),
-    .addr_i(instr_addr),
-    .we_i(1'b0),
-    .be_i(4'b1111),
-    .wdata_i(32'b0),
-    .rvalid_o(instr_rvalid),
-    .rdata_o(instr_rdata),
-    .err_o(instr_err),
-
-    .HADDR(imem_haddr),
-    .HTRANS(imem_htrans),
-    .HSIZE(imem_hsize),
-    .HWRITE(imem_hwrite),
-    .HWDATA(imem_hwdata),
-    .HRDATA(imem_hrdata),
-    .HREADY(imem_hready),
-    .HRESP(imem_hresp),
-    .HBUSREQ(),
-    .HGRANT(1'b1)
-);
-
 ahb_decoder #(
     .NUM_ARB_MSTS(1),
     .NUM_SLVS(IBUS_NUM_SLVS),
@@ -777,32 +686,6 @@ ahb_decoder #(
     .slv_hready_mux(imem_hready_mux_unused),
     .slv_hresp_mux(imem_hresp),
     .slv_hrdata_mux(imem_hrdata)
-);
-
-// Data Memory Wrapper
-ibex_to_ahb dmem_wrapper (
-    .clk_i(clk),
-    .rst_ni(rstn),
-    .req_i(data_req),
-    .gnt_o(data_gnt),
-    .addr_i(data_addr),
-    .we_i(data_we),
-    .be_i(data_be),
-    .wdata_i(data_wdata),
-    .rvalid_o(data_rvalid),
-    .rdata_o(data_rdata),
-    .err_o(data_err),
-    
-    .HADDR(ibex_dmem_haddr),
-    .HTRANS(ibex_dmem_htrans),
-    .HSIZE(ibex_dmem_hsize),
-    .HWRITE(ibex_dmem_hwrite),
-    .HWDATA(ibex_dmem_hwdata),
-    .HRDATA(ibex_dmem_hrdata),
-    .HREADY(ibex_dmem_hready),
-    .HRESP(ibex_dmem_hresp),
-    .HBUSREQ(ibex_dmem_hbusreq),
-    .HGRANT(ibex_dmem_hgrant)
 );
 
 

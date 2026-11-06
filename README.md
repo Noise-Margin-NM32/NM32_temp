@@ -1,17 +1,19 @@
-# NM32 SoC (KAVACH), `ibex` branch
+# NM32 SoC (KAVACH), `self-cpu` branch
 
 NM32 is a RISC-V System-on-Chip for real-time selective audio noise suppression. A microphone stream comes in over
 I2S. The CPU runs it through 512-point FFT/IFFT hardware accelerators, applies a spectral mask that removes the
 selected "trigger" sounds, and streams the result back out over I2S.
 
-On this branch the CPU is **Ibex** (lowRISC, RV32IMC), which replaces PicoRV32. The full audio pipeline runs
-end-to-end in Vivado XSim.
+On this branch the CPU is the team's own **NM32 3-stage pipelined RV32IM core** (`cpu/`, from
+[Noise-Margin-NM32/CPU](https://github.com/Noise-Margin-NM32/CPU), branch `omkar`), which replaces Ibex. It sits on a
+Harvard bus architecture: a separate instruction AHB-Lite bus and data AHB bus. The full audio pipeline runs end-to-end
+in Vivado XSim. The `ibex` branch keeps the same SoC with Ibex.
 
 ## Status (2026-10-05)
 
 | Item | State |
 |---|---|
-| Ibex boot (Boot ROM, then SPI flash, then SRAM) | Working |
+| CPU boot (Boot ROM, then SPI flash, then SRAM) | Working |
 | FFT, mask and IFFT pipeline, I2S RX and TX, DMA | Working. The sim ends with `Simulation successful` (~53.2 ms). `tools/check_fft.py` PASS |
 | Harvard bus architecture (separate instruction and data AHB buses) | Instruction AHB-Lite bus (Boot ROM + SRAM port A) and data AHB bus (CPU data + DMA). See Architecture |
 | Audio quality | Tone reconstructed within about -25 to -31 dB, no clipping (peak 18148). Siren cut is only about 4-6 dB on the 8-frame test |
@@ -26,7 +28,7 @@ The SoC uses a **Harvard bus architecture**: two independent AHB buses.
 
 | | Source / target | Address |
 |---|---|---|
-| Master | Ibex instruction port, via `ibex_to_ahb` (`imem_wrapper`, HGRANT tied high) | |
+| Master | CPU instruction port (`u_cpu.instr_*`, AHB-Lite, no arbitration) | |
 | Slave 0 | Boot ROM, I port | `0x0000_0000` |
 | Slave 1 | SRAM port A (read-only AHB-Lite) | `0x3000_0000` |
 
@@ -34,7 +36,7 @@ The SoC uses a **Harvard bus architecture**: two independent AHB buses.
 
 | Master | Source |
 |---|---|
-| 0 | Ibex data port, via `ibex_to_ahb` (default master) |
+| 0 | CPU data port (`u_cpu.data_*`, default master) |
 | 1 | DMA RX |
 | 2 | DMA TX |
 
@@ -65,7 +67,7 @@ the `#define`s in `firmware/main.c`, and they must match `NM32_top.sv`.
 
 ### Boot flow
 
-1. Ibex starts in the Boot ROM, which is loaded from `firmware/bootrom.hex`.
+1. The CPU resets to `0x80` in the Boot ROM, which is loaded from `firmware/bootrom.hex`.
 2. The bootloader copies the program from the SPI flash model (`firmware/firmware_flash.hex`) into SRAM.
 3. It then jumps to `main()`.
 4. `main()` loads the twiddle factors and runs the per-frame loop: I2S RX, FFT, mask, IFFT, I2S TX.
@@ -73,7 +75,7 @@ the `#define`s in `firmware/main.c`, and they must match `NM32_top.sv`.
 ## How to run the simulation
 
 ```bash
-git clone -b ibex git@github.com:Noise-Margin-NM32/NM32_temp.git
+git clone -b self-cpu git@github.com:Noise-Margin-NM32/NM32_temp.git
 cd NM32_temp/NM32_top_temp
 vivado -mode batch -source sim.tcl      # runs until $finish
 ```
@@ -102,7 +104,8 @@ change to the firmware.
 | Path | Contents |
 |---|---|
 | `NM32_top_temp/` | Vivado project, top level `NM32_top.sv`, testbench `tb.sv` |
-| `Ibex/` | Ibex core sources |
+| `cpu/` | NM32 pipelined RV32IM CPU (`top_piplined.v` and submodules) |
+| `Ibex/` | Ibex core sources (not used on this branch) |
 | `ahb_decoder_and_arbiter/`, `AHB2APB/` | Bus fabric |
 | `FFT_Accelerator/`, `IFFT_Accelerator/` | FFT and IFFT accelerators |
 | `sram/` | SRAM and ping-pong RAM |

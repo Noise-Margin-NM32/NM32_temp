@@ -1,15 +1,20 @@
 //==========================================================================
 // Project : NM32 "KAVACH" SoC (Noise Margin)
 // Module  : tb
-// Purpose : Full-chip testbench for nm32_top (Ibex CPU).
+// Purpose : Full-chip testbench for nm32_top (NM32 pipelined RV32IM CPU,
+//           cpu/top_piplined.v, on the Harvard I-bus / D-bus).
 //           - I2S: TX clocks are looped back to RX, and a serializer plays
 //             firmware/audio_in.txt into the RX data pin (the "microphone").
 //           - SPI: behavioural flash model (Flash/flash.v) on CS0 supplies the
 //             firmware image the bootloader copies into SRAM.
 //           - Checks (each ends the run with a message):
-//               [TRAP]     firmware trap_dump (start.S) wrote mcause/mepc/mtval
+//               [TRAP]     firmware trap_dump (start.S) wrote mcause/mepc/mtval,
+//                          or the CPU fetched from the vector table
+//                          (0x00-0x7C; the CPU has no exceptions, so only a
+//                          bad jump gets there)
 //               [WATCHDOG] no instruction fetch completed for 20 ms
-//               [XCHECK]   X on Ibex instr/data read data
+//               [XCHECK]   X on I-bus / D-bus read data, a register-file
+//                          write or the instruction in decode
 //           - Outputs (written to the simulator run directory, for XSim:
 //             NM32_top_temp/NM32_top_temp.sim/sim_1/behav/xsim/):
 //               audio_out.txt  every word written to the I2S TX FIFO
@@ -179,101 +184,107 @@ module tb;
         end
     end
 
-    // Watchdog: some instruction fetch completes at least every 20 ms
-    // (generous: wfi legitimately stops fetching while waiting for an IRQ).
-    integer last_insn_time = 0;
+    // I-bus fetch tracking: an address phase is accepted when HTRANS is
+    // NONSEQ/SEQ and HREADY is high; its data completes at the next HREADY.
+    reg        if_pend = 1'b0;
+    reg [31:0] if_addr;
+    wire       if_done = if_pend && dut.imem_hready;    // fetch data valid now
     always @(posedge clk) begin
-        if (dut.instr_rvalid)
-            last_insn_time = $time;
-        if ($time - last_insn_time > 20000000) begin      // ns
-            $display("Time=%0t: [WATCHDOG] CPU stuck! No instruction fetch for 20ms! Last at %0t, fetch addr 0x%08h.", $time, last_insn_time, dut.instr_addr);
-            $finish;
+        if (!rstn) if_pend <= 1'b0;
+        else if (dut.imem_hready) begin
+            if_pend <= dut.imem_htrans[1];
+            if_addr <= dut.imem_haddr;
         end
     end
 
-    // X check on the read data Ibex consumes.
-    reg data_is_write;       // write flag of the data-port access in flight
-    // Granted fetch addresses, oldest first, so an X response is reported
-    // against the address it belongs to (Ibex keeps up to 2 in flight).
-    reg [31:0] fq [0:3];
-    reg [1:0]  fq_wr = 0, fq_rd = 0;
-    always @(posedge clk) begin
-        if (dut.data_gnt) data_is_write <= dut.data_we;
-        if (dut.instr_req && dut.instr_gnt) begin fq[fq_wr] <= dut.instr_addr; fq_wr <= fq_wr + 1; end
-        if (dut.instr_rvalid) fq_rd <= fq_rd + 1;
-        if (rstn) begin
-            if ($isunknown({dut.instr_gnt, dut.instr_rvalid, dut.instr_err,
-                            dut.data_gnt, dut.data_rvalid, dut.data_err,
-                            dut.clic_irq_valid})) begin
-                $display("Time=%0t: [XCHECK] X on Ibex handshake/irq: igt=%b irv=%b ier=%b dgt=%b drv=%b der=%b irq=%b",
-                         $time, dut.instr_gnt, dut.instr_rvalid, dut.instr_err,
-                         dut.data_gnt, dut.data_rvalid, dut.data_err, dut.clic_irq_valid);
-                $finish;
-            end
-            if (dut.instr_rvalid && $isunknown(dut.instr_rdata)) begin
-                $display("Time=%0t: [XCHECK] X on instr_rdata, fetch addr 0x%08h (current request 0x%08h)", $time, fq[fq_rd], dut.instr_addr);
-                $finish;
-            end
-            if (dut.data_rvalid && !data_is_write && $isunknown(dut.data_rdata)) begin
-                $display("Time=%0t: [XCHECK] X on data_rdata, data addr 0x%08h", $time, dut.data_addr);
-                $finish;
-            end
-        end
-    end
-
-    // X instruction reaching Ibex decode. Stops at the first occurrence (Ibex's
-    // own assertions would otherwise flood the log every cycle) and prints the
-    // last 8 completed instruction fetches.
-    reg [31:0] fetch_addr_q;                 // address of the fetch in flight
+    // Last 8 completed fetches, printed with any X report.
     reg [31:0] fh_addr [0:7];
     reg [31:0] fh_data [0:7];
     integer    fh_i;
     always @(posedge clk) begin
-        if (dut.instr_gnt) fetch_addr_q <= dut.instr_addr;
-        if (dut.instr_rvalid) begin
+        if (if_done) begin
             for (fh_i = 7; fh_i > 0; fh_i = fh_i - 1) begin
                 fh_addr[fh_i] <= fh_addr[fh_i-1];
                 fh_data[fh_i] <= fh_data[fh_i-1];
             end
-            fh_addr[0] <= fetch_addr_q;
-            fh_data[0] <= dut.instr_rdata;
+            fh_addr[0] <= if_addr;
+            fh_data[0] <= dut.imem_hrdata;
         end
-        // First X written into the register file (usual root cause of later
-        // "X branch decision" / "X operand" assertions inside Ibex).
-        if (rstn && dut.ibex_rf_we_wb && dut.ibex_rf_waddr_wb != 5'd0 &&
-            $isunknown(dut.ibex_rf_wdata_wb)) begin
-            $display("Time=%0t: [XCHECK] X written to x%0d, pc_id=0x%08h (data port addr=0x%08h)",
-                     $time, dut.ibex_rf_waddr_wb, dut.u_ibex_core.id_stage_i.pc_id_i, dut.data_addr);
-            for (fh_i = 7; fh_i >= 0; fh_i = fh_i - 1)
-                $display("        fetch[-%0d] addr=0x%08h data=0x%08h", fh_i, fh_addr[fh_i], fh_data[fh_i]);
-            $finish;
-        end
-        if (rstn && dut.u_ibex_core.id_stage_i.instr_valid_i &&
-            $isunknown(dut.u_ibex_core.id_stage_i.instr_rdata_i)) begin
-            $display("Time=%0t: [XCHECK] X instruction in decode, pc_id=0x%08h instr=0x%08h",
-                     $time, dut.u_ibex_core.id_stage_i.pc_id_i, dut.u_ibex_core.id_stage_i.instr_rdata_i);
-            for (fh_i = 7; fh_i >= 0; fh_i = fh_i - 1)
-                $display("        fetch[-%0d] addr=0x%08h data=0x%08h", fh_i, fh_addr[fh_i], fh_data[fh_i]);
+    end
+    task dump_fetch_history;
+        for (fh_i = 7; fh_i >= 0; fh_i = fh_i - 1)
+            $display("        fetch[-%0d] addr=0x%08h data=0x%08h", fh_i, fh_addr[fh_i], fh_data[fh_i]);
+    endtask
+
+    // CPU data-port access completing this cycle (its FSM is in the data
+    // phase, D_DATA = 1, and the D-bus HREADY is high).
+    wire d_done = (dut.u_cpu.d_state == 1'b1) && dut.cpu_dmem_hready;
+
+    // Watchdog: some instruction fetch completes at least every 20 ms.
+    integer last_insn_time = 0;
+    always @(posedge clk) begin
+        if (if_done)
+            last_insn_time = $time;
+        if ($time - last_insn_time > 20000000) begin      // ns
+            $display("Time=%0t: [WATCHDOG] CPU stuck! No instruction fetch for 20ms! Last at %0t, fetch addr 0x%08h, pc_id=0x%08h.",
+                     $time, last_insn_time, dut.imem_haddr, dut.u_cpu.if_id_pc);
             $finish;
         end
     end
 
-    // Accelerator / ping-pong register traffic (0x4000_0000-0x6FFF_FFFF),
-    // logged when the data-port access completes. 0x50001000 = PING_PONG_CTRL,
-    // 0x40000C00 / 0x60000C00 = FFT / IFFT CTRL.
-    reg [31:0] acc_addr, acc_wdata;
-    reg [3:0]  acc_be;
-    reg        acc_we;
+    // Vector table fetch: start.S fills 0x00-0x7C with "j trap_dump". This
+    // CPU never takes exceptions, so getting here means a jump to a bad
+    // address (e.g. a null function pointer).
     always @(posedge clk) begin
-        if (dut.data_gnt) begin
-            acc_addr  <= dut.data_addr;
-            acc_we    <= dut.data_we;
-            acc_be    <= dut.data_be;
-            acc_wdata <= dut.data_wdata;
+        if (rstn && if_done && if_addr < 32'h80) begin
+            $display("Time=%0t: [TRAP] CPU fetched from the vector table at 0x%08h (bad jump?)", $time, if_addr);
+            dump_fetch_history;
+            $finish;
         end
-        if (dut.data_rvalid && acc_addr >= 32'h40000000 && acc_addr < 32'h70000000)
-            $display("Time=%0t: [ACCEL ACCESS] Addr=0x%08h Write=%b Data=0x%08h Wstrb=%b",
-                     $time, acc_addr, acc_we, acc_we ? acc_wdata : dut.data_rdata, acc_we ? acc_be : 4'b0000);
+    end
+
+    // X checks
+    always @(posedge clk) begin
+        if (rstn) begin
+            if ($isunknown({dut.imem_hready, dut.imem_htrans, dut.cpu_dmem_hready,
+                            dut.cpu_dmem_hgrant, dut.cpu_dmem_htrans})) begin
+                $display("Time=%0t: [XCHECK] X on bus handshake: ihready=%b ihtrans=%b dhready=%b dhgrant=%b dhtrans=%b",
+                         $time, dut.imem_hready, dut.imem_htrans, dut.cpu_dmem_hready,
+                         dut.cpu_dmem_hgrant, dut.cpu_dmem_htrans);
+                $finish;
+            end
+            if (if_done && $isunknown(dut.imem_hrdata)) begin
+                $display("Time=%0t: [XCHECK] X on I-bus HRDATA, fetch addr 0x%08h", $time, if_addr);
+                dump_fetch_history;
+                $finish;
+            end
+            if (d_done && !dut.cpu_dmem_hwrite && $isunknown(dut.cpu_dmem_hrdata)) begin
+                $display("Time=%0t: [XCHECK] X on D-bus HRDATA, data addr 0x%08h", $time, dut.cpu_dmem_haddr);
+                $finish;
+            end
+            if (dut.u_cpu.reg_file.en_write && dut.u_cpu.reg_file.write_reg != 5'd0 &&
+                $isunknown(dut.u_cpu.reg_file.write_data)) begin
+                $display("Time=%0t: [XCHECK] X written to x%0d, pc_id=0x%08h (data addr=0x%08h)",
+                         $time, dut.u_cpu.reg_file.write_reg, dut.u_cpu.if_id_pc, dut.cpu_dmem_haddr);
+                dump_fetch_history;
+                $finish;
+            end
+            if ($isunknown(dut.u_cpu.if_id_instr)) begin
+                $display("Time=%0t: [XCHECK] X instruction in decode, pc_id=0x%08h", $time, dut.u_cpu.if_id_pc);
+                dump_fetch_history;
+                $finish;
+            end
+        end
+    end
+
+    // Accelerator / ping-pong register traffic (0x4000_0000-0x6FFF_FFFF),
+    // logged when the CPU data-port access completes. 0x50001000 =
+    // PING_PONG_CTRL, 0x40000C00 / 0x60000C00 = FFT / IFFT CTRL.
+    always @(posedge clk) begin
+        if (d_done && dut.cpu_dmem_haddr >= 32'h40000000 && dut.cpu_dmem_haddr < 32'h70000000)
+            $display("Time=%0t: [ACCEL ACCESS] Addr=0x%08h Write=%b Data=0x%08h Size=%0d",
+                     $time, dut.cpu_dmem_haddr, dut.cpu_dmem_hwrite,
+                     dut.cpu_dmem_hwrite ? dut.cpu_dmem_hwdata : dut.cpu_dmem_hrdata, dut.cpu_dmem_hsize);
     end
 
     // ---------------------------------------------------------------------

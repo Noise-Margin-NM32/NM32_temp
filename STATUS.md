@@ -49,6 +49,21 @@ To achieve the 100% intended dataflow, we need to implement the following:
 4. **General Peripherals (GPIO, Watchdog):** Integrate these existing IPs into the AHB/APB bus and map their registers.
 5. **Filtration Algorithm:** Write the actual C code for the audio filtration process that sits between the FFT and IFFT phases.
 
+## Resolved (2026-11-06), `self-cpu` branch
+- **Own CPU replaces Ibex.** `cpu/` holds the NM32 3-stage pipelined RV32IM core. It comes from github.com/Noise-Margin-NM32/CPU, branch `omkar` @ 7f0979d, the version with AHB ports; `main` has none. Its instruction port is the only master on the I-bus, and its data port is D-bus master 0. `ibex_to_ahb.sv` was removed, and the Ibex sources were removed from the Vivado project. The `Ibex/` folder stays in the repo. Changes made to the CPU for the SoC:
+  - `RESET_PC` parameter, set to `0x80` in `NM32_top.sv` because `start.S` puts the vector table at 0x00-0x7C.
+  - `stall_imem = !instr_hready`: the PC holds during any I-bus wait state.
+  - An I-bus wait state also inserts a stage-3 bubble. Before this, the held ID instruction was issued twice.
+  - MUL/DIV start only when stage 2 can issue, so not during `freeze_all`, load-use or I-bus stalls. Before this, a MUL/DIV that depended on a load latched the operand before the load data returned.
+  - Divider: divide-by-zero and overflow now go through `D_DONE`. Before this, the pipeline latched the previous division's result.
+- The CPU has no CSRs, interrupts or exceptions; SYSTEM and FENCE decode as NOP. The firmware only uses `csrr` in `trap_dump`. `tb.sv` stops with [TRAP] if the CPU ever fetches from the vector table.
+- Results:
+  - Full-chip sim: "Simulation successful" at 55.7 ms (Ibex: 51.3 ms).
+  - `check_fft.py` PASS, with the same per-frame errors and the same audio stats as Ibex (peak 18148, rms 6017.9).
+  - CPU repo tests on the modified RTL: `top_tb` 45/45, `tb_c` PASS, `tb_ahb_stress` PASS.
+  - Golden outputs are in `~/NM32_golden/self-cpu/`. The older `~/NM32_golden/ibex/` predates the window fix.
+- CLIC is not connected to the CPU yet, since the CPU has no interrupt input. The firmware polls.
+
 ## Resolved (2026-10-05)
 - **Harvard bus architecture.** Instruction fetches use their own AHB-Lite bus. The path is Ibex instruction port, then `ibex_to_ahb` as the only master, then `u_ibus_decoder`, then either the Boot ROM I port or SRAM port A. Port A is now a full read-only AHB-Lite slave. Data accesses and DMA use the separate data AHB bus, where the CPU data port is master 0 and the default master, DMA RX is master 1, and DMA TX is master 2. The Boot ROM is dual-ported: its I port serves fetches and its D port serves data reads. `ibex_imem_router` has been removed. Both memories latch addresses only on NONSEQ/SEQ, and idle data phases return a NOP.
 - **Full-scale peaks and distortion.** These came from the Hamming window: `cos_fp_q30` computed x^4 in int64 and overflowed for angles above ~1.7 rad, which corrupted the middle of the window. The window is now built from `fft_twiddles` (exact, periodic Hamming). Tone-only hops went from ~2000 RMS error to 285-590 RMS, and the output peak dropped from 32768 to 18148.
